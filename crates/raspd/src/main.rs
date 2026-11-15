@@ -144,12 +144,37 @@ fn main() {
         _ => {}
     }
     let options = parse(&args);
-    let log = Log::open(options.log.clone());
-    let runtime = tokio::runtime::Builder::new_multi_thread()
+    let log = match Log::open(options.log.clone()) {
+        Ok(log) => log,
+        Err(error) => {
+            eprintln!(
+                "{}",
+                logs::line(
+                    "error",
+                    "raspd",
+                    "raspd.fatal",
+                    vec![("error".into(), J::str(format!("spawn log thread: {error}")))]
+                )
+            );
+            std::process::exit(1);
+        }
+    };
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
         .worker_threads(4)
         .enable_all()
         .build()
-        .expect("tokio runtime");
+    {
+        Ok(runtime) => runtime,
+        Err(error) => {
+            log.lifecycle(
+                "error",
+                "raspd.fatal",
+                vec![("error".into(), J::str(format!("tokio runtime: {error}")))],
+            );
+            log.flush();
+            std::process::exit(1);
+        }
+    };
     let code = runtime.block_on(async {
         match serve(options, log.clone()).await {
             Ok(()) => 0,
@@ -179,7 +204,8 @@ async fn serve(options: Options, log: Log) -> Result<(), String> {
             .clone()
             .unwrap_or_else(|| metrics::resolve_dir(release::var_root(&release.root).as_deref())),
         Arc::new(move |event: &str, data| warn_log.event("warn", "metrics", event, data)),
-    );
+    )
+    .map_err(|e| format!("spawn metrics thread: {e}"))?;
     let upstream_display = options
         .upstream
         .as_ref()

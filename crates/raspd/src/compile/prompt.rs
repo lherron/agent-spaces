@@ -720,9 +720,14 @@ pub fn default_template(base: &[String]) -> Template {
 }
 
 /// Default prompt sections with the caller's scaffold packets, in source order.
-pub fn default_template_with_scaffold(base: &[String], packets: &J) -> Template {
+pub fn default_template_with_scaffold(base: &[String], packets: &J) -> Result<Template, Fwd> {
     let mut t = default_template(base);
-    for (i, packet) in packets.as_arr().unwrap().iter().enumerate() {
+    for (i, packet) in packets
+        .as_arr()
+        .ok_or_else(|| fwd(crate::reason!("invalid_params")))?
+        .iter()
+        .enumerate()
+    {
         for (key, prefix) in [("content", "scaffold-inline"), ("ref", "scaffold-ref")] {
             if let Some(value) = packet
                 .get(key)
@@ -747,7 +752,7 @@ pub fn default_template_with_scaffold(base: &[String], packets: &J) -> Template 
             }
         }
     }
-    t
+    Ok(t)
 }
 
 // -- resolution --------------------------------------------------------------
@@ -760,14 +765,20 @@ fn env_lookup(ctx: &Ctx, key: &str) -> Option<String> {
 }
 
 /// `matchesWhenPredicate`.
-fn matches(when: Option<&When>, ctx: &Ctx) -> bool {
-    let Some(w) = when else { return true };
+fn matches(when: Option<&When>, ctx: &Ctx) -> Result<bool, Fwd> {
+    let Some(w) = when else { return Ok(true) };
     let mut predicate;
     let ctx = if let Some(p) = &ctx.pinned {
         predicate = ctx.clone();
-        let i = p.context.get("predicateInputs").unwrap();
+        let i = p
+            .context
+            .get("predicateInputs")
+            .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
         predicate.cwd = i.get("cwd").and_then(J::as_str).map(str::to_owned);
-        predicate.env = Some(context_env(i.get("environment").unwrap()));
+        predicate.env = Some(context_env(
+            i.get("environment")
+                .ok_or_else(|| fwd(crate::reason!("invalid_params")))?,
+        ));
         &predicate
     } else {
         ctx
@@ -776,7 +787,7 @@ fn matches(when: Option<&When>, ctx: &Ctx) -> bool {
         .as_ref()
         .is_some_and(|m| Some(m) != ctx.run_mode.as_ref())
     {
-        return false;
+        return Ok(false);
     }
     if let Some(e) = &w.exists {
         // Bun: `cwd ?? projectRoot ?? process.cwd()`.
@@ -787,12 +798,12 @@ fn matches(when: Option<&When>, ctx: &Ctx) -> bool {
                 .unwrap_or_else(|_| "/".into()),
         };
         if !std::path::Path::new(&join(&[&cwd, e])).exists() {
-            return false;
+            return Ok(false);
         }
     }
     if let Some(field) = &w.task_field {
         let Some(f) = task_facts(ctx) else {
-            return false;
+            return Ok(false);
         };
         let present = match field.as_str() {
             "id" => true,
@@ -802,25 +813,25 @@ fn matches(when: Option<&When>, ctx: &Ctx) -> bool {
             _ => f.4.is_some(),
         };
         if !present {
-            return false;
+            return Ok(false);
         }
     }
     if let Some(k) = &w.env_set
         && env_lookup(ctx, k).is_none_or(|v| js_trim(&v).is_empty())
     {
-        return false;
+        return Ok(false);
     }
     if let Some((k, v)) = &w.env_equals
         && env_lookup(ctx, k).as_deref() != Some(v.as_str())
     {
-        return false;
+        return Ok(false);
     }
     if let Some((k, v)) = &w.env_not_equals
         && env_lookup(ctx, k).as_deref() == Some(v.as_str())
     {
-        return false;
+        return Ok(false);
     }
-    true
+    Ok(true)
 }
 
 /// SectionResolution `failed`: its source and reason, as Bun words them.
@@ -1190,7 +1201,7 @@ fn resolve_probe(
                 .get("serviceProbeInputs")
                 .and_then(|i| i.get("responses"))
                 .and_then(J::as_arr)
-                .unwrap();
+                .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
             let mut used = p.used.borrow_mut();
             let mut ups = vec![];
             for (name, endpoint) in &specs {
@@ -1266,7 +1277,7 @@ fn resolve_section(section: &Section, ctx: &Ctx) -> Result<Res, Fwd> {
         Body::Parts(parts) => {
             let mut included = vec![];
             for (content, when) in parts {
-                if matches(when.as_ref(), ctx) {
+                if matches(when.as_ref(), ctx)? {
                     included.push(interpolate(content, ctx)?);
                 }
             }
@@ -1416,7 +1427,7 @@ fn resolve_zone(
         } else {
             None
         };
-        let outcome = if !matches(section.when.as_ref(), ctx) {
+        let outcome = if !matches(section.when.as_ref(), ctx)? {
             Err("predicate")
         } else {
             match resolve_section(section, ctx)? {
@@ -1530,7 +1541,7 @@ fn resolve_detailed(
             .get("serviceProbeInputs")
             .and_then(|i| i.get("responses"))
             .and_then(J::as_arr)
-            .unwrap();
+            .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
         let mut keys = std::collections::HashSet::new();
         for r in responses {
             let key = (
@@ -1550,7 +1561,7 @@ fn resolve_detailed(
             .get("serviceProbeInputs")
             .and_then(|i| i.get("responses"))
             .and_then(J::as_arr)
-            .unwrap();
+            .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
         if p.used.borrow().len() != responses.len() {
             return Err(fwd(crate::reason!("prompt_section_failed")));
         }
@@ -1933,11 +1944,11 @@ mod tests {
     /// T-12027: `when.exists` checks the placement folder (`cwd ?? projectRoot`),
     /// never the daemon's process cwd, matching Bun's resolver context.
     #[test]
-    fn when_exists_checks_the_placement_folder() {
+    fn when_exists_checks_the_placement_folder() -> Result<(), Box<dyn std::error::Error>> {
         let base = std::env::temp_dir().join(format!("raspd-when-cwd-{}", std::process::id()));
         let project = base.join("project");
-        std::fs::create_dir_all(&project).unwrap();
-        std::fs::write(project.join("pm-gate"), "").unwrap();
+        std::fs::create_dir_all(&project)?;
+        std::fs::write(project.join("pm-gate"), "")?;
         let gate = When {
             run_mode: None,
             exists: Some("pm-gate".into()),
@@ -1948,11 +1959,14 @@ mod tests {
         };
         let mut c = ctx();
         c.project_root = Some(project.to_string_lossy().into_owned());
-        let via_project_root = matches(Some(&gate), &c);
+        let via_project_root = matches(Some(&gate), &c)
+            .map_err(|f| format!("{}: {:?}", f.reason.as_str(), f.detail))?;
         c.cwd = Some(base.to_string_lossy().into_owned());
-        let cwd_wins = matches(Some(&gate), &c);
-        std::fs::remove_dir_all(&base).unwrap();
+        let cwd_wins = matches(Some(&gate), &c)
+            .map_err(|f| format!("{}: {:?}", f.reason.as_str(), f.detail))?;
+        std::fs::remove_dir_all(&base)?;
         assert!(via_project_root);
         assert!(!cwd_wins);
+        Ok(())
     }
 }

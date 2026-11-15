@@ -113,14 +113,13 @@ pub struct Compiled {
 
 pub fn handle(params: Option<&J>, release: &Release) -> Compiled {
     let mut phases = Phases::start();
-    if !request::params_valid(params) {
+    let Some(params) = params.filter(|p| request::params_valid(Some(*p))) else {
         return Compiled {
             answer: Answer::Forward(crate::reason!("invalid_params")),
             fallback_detail: None,
             phases: None,
         };
-    }
-    let params = params.expect("validated");
+    };
     match compile(params, release, &mut phases) {
         Ok(result) => Compiled {
             answer: Answer::Result(result),

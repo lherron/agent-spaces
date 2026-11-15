@@ -123,7 +123,9 @@ pub fn handle(method: &str, params: Option<&J>) -> Answer {
     if !handled(valid, params, expected) {
         return Answer::Forward(crate::reason!("invalid_params"));
     }
-    let params = params.expect("validated or fallback params are a record");
+    let Some(params) = params else {
+        return Answer::Forward(crate::reason!("invalid_params"));
+    };
     match method {
         "aspc.resolveRuntimeDeclaration" => declaration::answer(params, Env::process()),
         "aspc.observeRuntimeCapability" => capability::observe(params),

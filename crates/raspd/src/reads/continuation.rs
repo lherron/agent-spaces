@@ -419,17 +419,17 @@ pub fn observe(request: &J, env: &Env) -> Answer {
         _ => None,
     };
     let claude_home = frozen_claude_home(frozen);
-    let usable =
-        cwd.is_some_and(|c| !c.is_empty()) && claude_home.as_deref().is_some_and(|h| !h.is_empty());
-    if !usable {
+    let (Some(cwd), Some(home)) = (
+        cwd.filter(|c| !c.is_empty()),
+        claude_home.filter(|h| !h.is_empty()),
+    ) else {
         return ok(
             "claude",
             "none",
             state("unknown", "context_unavailable"),
             vec![],
         );
-    }
-    let (cwd, home) = (cwd.unwrap(), claude_home.unwrap());
+    };
     let encoded = encode_claude_project_path(&resolve(&[cwd]));
     let result = stat_path(&join(&[
         &home,

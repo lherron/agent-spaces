@@ -24,8 +24,12 @@ pub(super) fn emit_codex(
     path_prepend: Vec<String>,
 ) -> Result<J, Fwd> {
     let req = &plan.req;
-    let material = req.get("materialization").expect("validated");
-    let policy = req.get("hrcPolicy").expect("validated");
+    let material = req
+        .get("materialization")
+        .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?;
+    let policy = req
+        .get("hrcPolicy")
+        .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?;
     let Launch::Codex {
         defaults,
         path: command,
@@ -117,7 +121,7 @@ pub(super) fn emit_codex(
         driver.set("developerInstructions", J::str(&t.content));
     }
 
-    let mut spec = spec_header(req);
+    let mut spec = spec_header(req)?;
     spec.set(
         "harness",
         J::obj([
@@ -165,14 +169,16 @@ pub(super) fn emit_codex(
         );
     }
     spec.set("driver", driver);
-    spec.set("correlation", broker_correlation(req));
+    spec.set("correlation", broker_correlation(req)?);
     let mut start_request = J::obj([("spec", spec)]);
 
     // buildInitialInput: the priming/caller prompt only, never the system prompt.
     let items = initial_content(material, prompt.as_deref());
     if !items.is_empty() {
         let content = J::Arr(items);
-        let identity = req.get("identity").expect("validated");
+        let identity = req
+            .get("identity")
+            .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?;
         let input_id = match identity.get("initialInputId") {
             Some(id) => id.clone(),
             None => {

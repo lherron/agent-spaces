@@ -192,14 +192,14 @@ pub fn completion(reply: &serde_json::Value) -> Completion {
     }
     let result = reply.get("result");
     let record = result.filter(|r| r.is_object());
-    if record.and_then(|r| r.get("ok")) != Some(&serde_json::Value::Bool(false)) {
+    let Some(record) = record.filter(|r| r.get("ok") == Some(&serde_json::Value::Bool(false)))
+    else {
         return Completion {
             outcome: "ok".into(),
             error_code: None,
             message: None,
         };
-    }
-    let record = record.unwrap();
+    };
     let first = record
         .get("diagnostics")
         .and_then(|d| d.as_array())

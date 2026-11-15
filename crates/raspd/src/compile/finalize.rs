@@ -95,7 +95,9 @@ pub(super) fn finalize(
     bundle_root: &str,
 ) -> Result<J, Fwd> {
     let req = &plan.req;
-    let policy = req.get("hrcPolicy").expect("validated");
+    let policy = req
+        .get("hrcPolicy")
+        .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?;
     let codex = plan.selection.harness == request::Harness::Codex;
     let recipe = recipe_dto(&plan.selection);
     let recipe_id = s(recipe.get("recipeId")).unwrap_or_default().to_owned();

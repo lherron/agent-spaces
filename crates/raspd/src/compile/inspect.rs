@@ -38,7 +38,13 @@ pub fn handle(params: Option<&J>, release: &Release) -> Compiled {
             None,
         );
     }
-    let params = params.expect("validated or fallback params are a record");
+    let Some(params) = params else {
+        return answered(
+            Answer::Forward(crate::reason!("invalid_params")),
+            None,
+            None,
+        );
+    };
     if params.get("schemaVersion") != Some(&J::str(INSPECT_REQUEST_VERSION)) {
         return answered(
             Answer::Result(declaration_failure(
@@ -61,17 +67,26 @@ pub const CATALOG_METHOD: &str = "aspc.catalogAgents";
 pub fn handle_agent(method: &str, params: Option<&J>, release: &Release) -> Compiled {
     let mut phases = Phases::start();
     let inspect = method == AGENT_METHOD;
-    let result = if !super::inspection_input::valid(params, inspect) {
-        Err(fwd(crate::reason!("invalid_params")))
-    } else {
-        let p = params.unwrap();
-        let context = p.get("evaluationContext").unwrap();
+    let result = (|| {
+        if !super::inspection_input::valid(params, inspect) {
+            return Err(fwd(crate::reason!("invalid_params")));
+        }
+        let p = params.ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
+        let context = p
+            .get("evaluationContext")
+            .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
         if inspect {
-            inspect_agent(p.get("request").unwrap(), context, release, &mut phases)
+            inspect_agent(
+                p.get("request")
+                    .ok_or_else(|| fwd(crate::reason!("invalid_params")))?,
+                context,
+                release,
+                &mut phases,
+            )
         } else {
             super::inspection_input::catalog(context)
         }
-    };
+    })();
     match result {
         Ok(r) => Compiled {
             answer: Answer::Result(r),
@@ -92,8 +107,12 @@ fn inspect_agent(
     release: &Release,
     phases: &mut Phases,
 ) -> Result<J, Fwd> {
-    let identifiers = request.get("identifiers").unwrap();
-    let context_ids = context.get("identifiers").unwrap();
+    let identifiers = request
+        .get("identifiers")
+        .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
+    let context_ids = context
+        .get("identifiers")
+        .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
     if identifiers
         .js_entries()
         .iter()
@@ -109,10 +128,12 @@ fn inspect_agent(
 fn inspect_context_prompt(
     context: &J,
 ) -> Result<Option<(prompt::Resolved, prompt::Inspected, bool)>, Fwd> {
-    let paths = context.get("paths").unwrap();
-    let path = |k| s(paths.get(k)).unwrap();
-    let agent_root = path("agentRoot");
-    let agents_root = path("agentsRoot");
+    let paths = context
+        .get("paths")
+        .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
+    let path = |k| s(paths.get(k)).ok_or_else(|| fwd(crate::reason!("invalid_params")));
+    let agent_root = path("agentRoot")?;
+    let agents_root = path("agentsRoot")?;
     let discovered = prompt::discover_explicit(agent_root, agents_root)?;
     if discovered.template.is_none()
         && !std::path::Path::new(&join(&[agent_root, "SOUL.md"])).exists()
@@ -123,17 +144,21 @@ fn inspect_context_prompt(
         Some(t) => t,
         None => prompt::default_template_with_scaffold(
             discovered.base.as_deref().unwrap_or_default(),
-            context.get("scaffoldPackets").unwrap(),
-        ),
+            context
+                .get("scaffoldPackets")
+                .ok_or_else(|| fwd(crate::reason!("invalid_params")))?,
+        )?,
     };
-    let id = context.get("identifiers").unwrap();
+    let id = context
+        .get("identifiers")
+        .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
     let value = |k| s(id.get(k)).map(str::to_owned);
     let ctx = prompt::Ctx {
         agent_root: agent_root.into(),
         agents_root: agents_root.into(),
         search_path: vec![agent_root.into(), agents_root.into()],
-        project_root: Some(path("projectRoot").into()),
-        cwd: Some(path("cwd").into()),
+        project_root: Some(path("projectRoot")?.into()),
+        cwd: Some(path("cwd")?.into()),
         agent_id: value("agentId"),
         agent_name: value("agentName").or_else(|| value("agentId")),
         project_id: value("projectId"),
@@ -142,12 +167,16 @@ fn inspect_context_prompt(
         lane: value("lane"),
         run_mode: value("mode"),
         agent_profile: context.get("agentProfile").cloned(),
-        env: Some(prompt::context_env(context.get("environment").unwrap())),
+        env: Some(prompt::context_env(
+            context
+                .get("environment")
+                .ok_or_else(|| fwd(crate::reason!("invalid_params")))?,
+        )),
         exec_env: Some(prompt::context_env(
             context
                 .get("execInputs")
                 .and_then(|i| i.get("environment"))
-                .unwrap(),
+                .ok_or_else(|| fwd(crate::reason!("invalid_params")))?,
         )),
         pinned: Some(prompt::Pinned::new(context.clone())),
     };
@@ -629,7 +658,9 @@ fn evaluate(
     phases: &mut Phases,
     pinned: bool,
 ) -> Result<J, Fwd> {
-    let identifiers = request.get("identifiers").unwrap();
+    let identifiers = request
+        .get("identifiers")
+        .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
     let get = |k| s(identifiers.get(k)).unwrap_or_default();
     let (agent_id, scope, lane, harness) =
         (get("agentId"), get("scope"), get("lane"), get("harness"));
@@ -638,7 +669,9 @@ fn evaluate(
         "codex" | "codex-hrcpty" => "openai-codex",
         _ => return Err(fwd_at(crate::reason!("inspect_harness"), harness.into())),
     };
-    let paths = evaluation_context.get("paths").unwrap();
+    let paths = evaluation_context
+        .get("paths")
+        .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
     let path = |k| s(paths.get(k)).unwrap_or_default();
     let (agent_root, project_root, cwd) = (path("agentRoot"), path("projectRoot"), path("cwd"));
     let seed = hash(
@@ -678,7 +711,10 @@ fn evaluate(
     if pinned {
         compile_params.set(
             "compileContext",
-            evaluation_context.get("compileContext").unwrap().clone(),
+            evaluation_context
+                .get("compileContext")
+                .ok_or_else(|| fwd(crate::reason!("invalid_params")))?
+                .clone(),
         );
     }
     let mut plan = match classify(&compile_params, release, phases) {

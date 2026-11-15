@@ -22,7 +22,9 @@ pub(super) fn emit_claude(
     path_prepend: Vec<String>,
 ) -> Result<J, Fwd> {
     let req = &plan.req;
-    let policy = req.get("hrcPolicy").expect("validated");
+    let policy = req
+        .get("hrcPolicy")
+        .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?;
     let continuation_key = continuation_key(req);
     let prompt = plan.expanded_prompt.clone();
     let Launch::Claude {
@@ -153,7 +155,7 @@ pub(super) fn emit_claude(
         process.set("limits", limits);
     }
     let hrcpty = plan.selection.hrcpty;
-    let mut spec = spec_header(req);
+    let mut spec = spec_header(req)?;
     spec.set(
         "harness",
         J::obj([
@@ -191,7 +193,7 @@ pub(super) fn emit_claude(
     if matches!(&launch, J::Obj(f) if !f.is_empty()) {
         spec.set("launch", launch);
     }
-    spec.set("correlation", broker_correlation(req));
+    spec.set("correlation", broker_correlation(req)?);
     let start_request = J::obj([("spec", spec)]);
 
     finalize(

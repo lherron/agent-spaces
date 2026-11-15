@@ -342,11 +342,12 @@ fn bundle_problem(bundle: Option<&J>) -> Problem {
 
 fn placement_correlation_problem(correlation: Option<&J>) -> Problem {
     let path = "placement.correlation";
-    let c = correlation.expect("present");
+    let Some(c) = correlation else {
+        return Some(format!("{path}:missing"));
+    };
     kind(Some(c), path, J::is_record, "record")
         .or_else(|| {
-            opt(c.get("sessionRef"), |s| {
-                let s = s.expect("present");
+            c.get("sessionRef").and_then(|s| {
                 let path = "placement.correlation.sessionRef";
                 want_str(s.get("scopeRef"), &format!("{path}.scopeRef"))
                     .or_else(|| want_str(s.get("laneRef"), &format!("{path}.laneRef")))
@@ -379,8 +380,7 @@ fn materialization_problem(material: &J) -> Problem {
             Some(_) => Some("materialization.attachments:not_array".to_owned()),
         })
         .or_else(|| {
-            opt(material.get("taskContext"), |t| {
-                let t = t.expect("present");
+            material.get("taskContext").and_then(|t| {
                 let path = "materialization.taskContext";
                 want_str(t.get("taskId"), &format!("{path}.taskId"))
                     .or_else(|| {
@@ -400,38 +400,39 @@ fn materialization_problem(material: &J) -> Problem {
 }
 
 fn hrc_policy_problem(policy: &J) -> Problem {
-    opt(policy.get("resourceLimits"), |l| {
-        let l = l.expect("present");
-        let path = "hrcPolicy.resourceLimits";
-        kind(Some(l), path, J::is_record, "record").or_else(|| {
-            [
-                "startupTimeoutMs",
-                "turnTimeoutMs",
-                "stopGraceMs",
-                "maxEventBytes",
-            ]
-            .iter()
-            .find_map(|k| {
-                opt(l.get(k), |v| {
-                    kind(
-                        v,
-                        &format!("{path}.{k}"),
-                        |v| matches!(v, J::Num(_)),
-                        "number",
-                    )
+    policy
+        .get("resourceLimits")
+        .and_then(|l| {
+            let path = "hrcPolicy.resourceLimits";
+            kind(Some(l), path, J::is_record, "record").or_else(|| {
+                [
+                    "startupTimeoutMs",
+                    "turnTimeoutMs",
+                    "stopGraceMs",
+                    "maxEventBytes",
+                ]
+                .iter()
+                .find_map(|k| {
+                    opt(l.get(k), |v| {
+                        kind(
+                            v,
+                            &format!("{path}.{k}"),
+                            |v| matches!(v, J::Num(_)),
+                            "number",
+                        )
+                    })
                 })
             })
         })
-    })
-    .or_else(|| {
-        let ok = policy
-            .get("disallowedTools")
-            .is_none_or(|t| matches!(t, J::Arr(x) if x.iter().all(|i| matches!(i, J::Str(_)))));
-        (!ok).then(|| "hrcPolicy.disallowedTools:invalid".to_owned())
-    })
-    .or_else(|| opt_rec_at(policy.get("permissionPolicy"), "hrcPolicy.permissionPolicy"))
-    .or_else(|| opt_rec_at(policy.get("inputPolicy"), "hrcPolicy.inputPolicy"))
-    .or_else(|| opt_rec_at(policy.get("exposurePolicy"), "hrcPolicy.exposurePolicy"))
+        .or_else(|| {
+            let ok = policy
+                .get("disallowedTools")
+                .is_none_or(|t| matches!(t, J::Arr(x) if x.iter().all(|i| matches!(i, J::Str(_)))));
+            (!ok).then(|| "hrcPolicy.disallowedTools:invalid".to_owned())
+        })
+        .or_else(|| opt_rec_at(policy.get("permissionPolicy"), "hrcPolicy.permissionPolicy"))
+        .or_else(|| opt_rec_at(policy.get("inputPolicy"), "hrcPolicy.inputPolicy"))
+        .or_else(|| opt_rec_at(policy.get("exposurePolicy"), "hrcPolicy.exposurePolicy"))
 }
 
 fn continuation_problem(c: &J) -> Problem {
@@ -473,19 +474,30 @@ pub fn shape_supported(p: &J) -> Result<(), Fwd> {
     if p.get("aspHome") == Some(&J::str("")) {
         return Err(fwd(crate::reason!("empty_asp_home")));
     }
-    let req = p.get("compileRequest").expect("validated");
+    let req = p
+        .get("compileRequest")
+        .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
     let gates: [(crate::disposition::Reason, Problem); 5] = [
         (
             crate::reason!("placement_shape"),
-            placement_problem(req.get("placement").expect("validated")),
+            placement_problem(
+                req.get("placement")
+                    .ok_or_else(|| fwd(crate::reason!("invalid_params")))?,
+            ),
         ),
         (
             crate::reason!("materialization_shape"),
-            materialization_problem(req.get("materialization").expect("validated")),
+            materialization_problem(
+                req.get("materialization")
+                    .ok_or_else(|| fwd(crate::reason!("invalid_params")))?,
+            ),
         ),
         (
             crate::reason!("hrc_policy_shape"),
-            hrc_policy_problem(req.get("hrcPolicy").expect("validated")),
+            hrc_policy_problem(
+                req.get("hrcPolicy")
+                    .ok_or_else(|| fwd(crate::reason!("invalid_params")))?,
+            ),
         ),
         (
             crate::reason!("continuation_shape"),
@@ -493,7 +505,10 @@ pub fn shape_supported(p: &J) -> Result<(), Fwd> {
         ),
         (
             crate::reason!("correlation_shape"),
-            correlation_problem(req.get("correlation").expect("validated")),
+            correlation_problem(
+                req.get("correlation")
+                    .ok_or_else(|| fwd(crate::reason!("invalid_params")))?,
+            ),
         ),
     ];
     match gates.into_iter().find_map(|(r, p)| p.map(|d| (r, d))) {
@@ -715,7 +730,9 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
         .and_then(|a| a.get("id"))
         .and_then(J::as_str)
         .unwrap_or_default();
-    let placement = req.get("placement").expect("validated");
+    let placement = req
+        .get("placement")
+        .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
     let agent_root = placement
         .get("agentRoot")
         .and_then(J::as_str)

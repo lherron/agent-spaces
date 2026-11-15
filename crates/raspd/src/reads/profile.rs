@@ -559,7 +559,10 @@ pub fn catalog_parse(content: &str) -> R<Profile> {
         {
             let lines: Vec<&str> = content.split('\n').collect();
             let row = lines.len();
-            let col = lines.last().unwrap().encode_utf16().count();
+            let col = content
+                .rsplit('\n')
+                .next()
+                .map_or(0, |line| line.encode_utf16().count());
             let pos = content.encode_utf16().count() + 1;
             let mut message = format!(
                 "Failed to parse TOML: Unterminated inline array at row {row}, col {}, pos {pos}:\n",

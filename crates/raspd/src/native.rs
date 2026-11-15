@@ -298,9 +298,9 @@ fn issue(path: &str, code: &str, message: String) -> J {
 /// an absent value is `required`.
 fn validate_hello(params: Option<&J>) -> Result<(), Vec<J>> {
     let mut issues = vec![];
-    let require_record = |value: Option<&J>, path: &str, issues: &mut Vec<J>| -> bool {
+    fn require_record<'a>(value: Option<&'a J>, path: &str, issues: &mut Vec<J>) -> Option<&'a J> {
         match value {
-            Some(J::Obj(_)) => true,
+            Some(v @ J::Obj(_)) => Some(v),
             _ => {
                 let code = if value.is_none() {
                     "required"
@@ -308,17 +308,15 @@ fn validate_hello(params: Option<&J>) -> Result<(), Vec<J>> {
                     "invalid_type"
                 };
                 issues.push(issue(path, code, format!("{path} must be an object")));
-                false
+                None
             }
         }
-    };
-    if !require_record(params, "params", &mut issues) {
-        return Err(issues);
     }
-    let request = params.unwrap();
+    let Some(request) = require_record(params, "params", &mut issues) else {
+        return Err(issues);
+    };
     let client_info = request.get("clientInfo");
-    if require_record(client_info, "params.clientInfo", &mut issues) {
-        let info = client_info.unwrap();
+    if let Some(info) = require_record(client_info, "params.clientInfo", &mut issues) {
         let path = "params.clientInfo.name";
         match info.get("name") {
             None => issues.push(issue(path, "required", format!("{path} is required"))),
@@ -373,7 +371,7 @@ fn validate_hello(params: Option<&J>) -> Result<(), Vec<J>> {
     }
     let path = "params.capabilities";
     if let Some(capabilities) = request.get("capabilities")
-        && require_record(Some(capabilities), path, &mut issues)
+        && require_record(Some(capabilities), path, &mut issues).is_some()
     {
         for (key, value) in capabilities.js_entries() {
             if !matches!(value, J::Bool(_)) {

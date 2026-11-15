@@ -94,9 +94,11 @@ fn escape(s: &str) -> String {
         .replace('\u{c}', "\\f")
         .replace('\r', "\\r");
     // `.replace(/([\u0000-\u001f\u007f])/, …)`: not global, the first only.
-    match replaced.find(|c: char| (c as u32) < 0x20 || c == '\u{7f}') {
-        Some(at) => {
-            let c = replaced[at..].chars().next().expect("found");
+    match replaced
+        .char_indices()
+        .find(|(_, c)| (*c as u32) < 0x20 || *c == '\u{7f}')
+    {
+        Some((at, c)) => {
             format!(
                 "{}\\u{:04x}{}",
                 &replaced[..at],

@@ -223,7 +223,7 @@ pub fn read_manifest(path: &str) -> Result<J, Fwd> {
         Err(TomlError::Unsupported(reason)) => return Err(fwd(reason)),
         Err(_) => return Err(fwd(crate::reason!("space_manifest_toml"))),
     };
-    if !space_manifest_valid(&parsed) {
+    if !space_manifest_valid(&parsed)? {
         return Err(fwd(crate::reason!("space_manifest_invalid")));
     }
     Ok(parsed)
@@ -316,24 +316,37 @@ fn str_array(v: &J) -> bool {
 /// ajv-formats' full `email` and `uri` (its `/i` regexes: ASCII case folding,
 /// so non-ASCII never matches, and `\d` is `[0-9]`), copied from
 /// node_modules/ajv-formats/dist/formats.js.
-static EMAIL: std::sync::LazyLock<regex::bytes::Regex> = std::sync::LazyLock::new(|| {
-    regex::bytes::Regex::new(concat!("(?i-u)", r##"^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"##)).expect("email format")
-});
-static URI: std::sync::LazyLock<regex::bytes::Regex> = std::sync::LazyLock::new(|| {
-    regex::bytes::Regex::new(concat!("(?i-u)", r##"^(?:[a-z][a-z0-9+\-.]*:)(?:/?/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|(?:[a-z0-9\-._~!$&'()*+,;=]|%[0-9a-f]{2})*)(?::[0-9]*)?(?:/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*|/(?:(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)(?:\?(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?$"##)).expect("uri format")
-});
-
-fn email_format(s: &str) -> bool {
-    EMAIL.is_match(s.as_bytes())
-}
-
-/// `uri`: `NOT_URI_FRAGMENT.test(str) && URI.test(str)`.
-fn uri_format(s: &str) -> bool {
-    s.contains(['/', ':']) && URI.is_match(s.as_bytes())
-}
+static EMAIL: std::sync::LazyLock<Result<regex::bytes::Regex, regex::Error>> =
+    std::sync::LazyLock::new(|| {
+        regex::bytes::Regex::new(concat!(
+            "(?i-u)",
+            r##"^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*@(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"##
+        ))
+    });
+static URI: std::sync::LazyLock<Result<regex::bytes::Regex, regex::Error>> =
+    std::sync::LazyLock::new(|| {
+        regex::bytes::Regex::new(concat!(
+            "(?i-u)",
+            r##"^(?:[a-z][a-z0-9+\-.]*:)(?:/?/(?:(?:[a-z0-9\-._~!$&'()*+,;=:]|%[0-9a-f]{2})*@)?(?:\[(?:(?:(?:(?:[0-9a-f]{1,4}:){6}|::(?:[0-9a-f]{1,4}:){5}|(?:[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){4}|(?:(?:[0-9a-f]{1,4}:){0,1}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){3}|(?:(?:[0-9a-f]{1,4}:){0,2}[0-9a-f]{1,4})?::(?:[0-9a-f]{1,4}:){2}|(?:(?:[0-9a-f]{1,4}:){0,3}[0-9a-f]{1,4})?::[0-9a-f]{1,4}:|(?:(?:[0-9a-f]{1,4}:){0,4}[0-9a-f]{1,4})?::)(?:[0-9a-f]{1,4}:[0-9a-f]{1,4}|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))|(?:(?:[0-9a-f]{1,4}:){0,5}[0-9a-f]{1,4})?::[0-9a-f]{1,4}|(?:(?:[0-9a-f]{1,4}:){0,6}[0-9a-f]{1,4})?::)|[Vv][0-9a-f]+\.[a-z0-9\-._~!$&'()*+,;=:]+)\]|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|(?:[a-z0-9\-._~!$&'()*+,;=]|%[0-9a-f]{2})*)(?::[0-9]*)?(?:/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*|/(?:(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)?|(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})+(?:/(?:[a-z0-9\-._~!$&'()*+,;=:@]|%[0-9a-f]{2})*)*)(?:\?(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?(?:#(?:[a-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9a-f]{2})*)?$"##
+        ))
+    });
 
 /// The space manifest schema (space.schema.json under Ajv + ajv-formats), as a verdict.
-pub fn space_manifest_valid(v: &J) -> bool {
+pub fn space_manifest_valid(v: &J) -> Result<bool, Fwd> {
+    let email = EMAIL.as_ref().map_err(|e| {
+        fwd_at(
+            crate::reason!("space_manifest_invalid"),
+            format!("built-in email format: {e}"),
+        )
+    })?;
+    let uri = URI.as_ref().map_err(|e| {
+        fwd_at(
+            crate::reason!("space_manifest_invalid"),
+            format!("built-in uri format: {e}"),
+        )
+    })?;
+    let email_format = |s: &str| email.is_match(s.as_bytes());
+    let uri_format = |s: &str| s.contains(['/', ':']) && uri.is_match(s.as_bytes());
     let id_ok = |v: &J| matches!(v, J::Str(s) if is_space_id_chars(s) && code_points(s) <= 64);
     let semver_ok = |v: &J| matches!(v, J::Str(s) if semver(s));
     let plugin_ok = |p: &J| {
@@ -445,7 +458,7 @@ pub fn space_manifest_valid(v: &J) -> bool {
             && opt(c, "prompts", toggle)
             && opt(c, "skills", toggle)
     };
-    only(
+    Ok(only(
         v,
         &[
             "schema",
@@ -478,7 +491,7 @@ pub fn space_manifest_valid(v: &J) -> bool {
         && opt(v, "harness", harness_ok)
         && opt(v, "claude", claude_ok)
         && opt(v, "pi", pi_ok)
-        && opt(v, "codex", codex_ok)
+        && opt(v, "codex", codex_ok))
 }
 
 /// Sorted, deduplicated union over the dependency closure (not just roots).

@@ -47,7 +47,7 @@ pub struct Log {
 
 impl Log {
     /// A file log, or stderr when `path` is `None`.
-    pub fn open(path: Option<PathBuf>) -> Log {
+    pub fn open(path: Option<PathBuf>) -> std::io::Result<Log> {
         let log = Log {
             path,
             pending: Arc::default(),
@@ -61,10 +61,9 @@ impl Log {
                         std::thread::sleep(Duration::from_millis(250));
                         flusher.flush();
                     }
-                })
-                .expect("spawn log thread");
+                })?;
         }
-        log
+        Ok(log)
     }
 
     pub fn write(&self, line: String) {

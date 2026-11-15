@@ -24,11 +24,18 @@ pub(super) fn preflight(plan: &Plan) -> Result<(), Fwd> {
         }
     }
     if matches!(plan.launch, Launch::Codex { .. }) {
-        broker_permission_policy(plan.req.get("hrcPolicy").expect("validated"))?;
+        broker_permission_policy(
+            plan.req
+                .get("hrcPolicy")
+                .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?,
+        )?;
         codex::preflight_config(&plan.space_plans, plan.codex_options.as_ref())?;
         // validateInvocationInput judges a format only on an initial input
         // that exists (compiler_exception, after Bun's writes).
-        let material = plan.req.get("materialization").expect("validated");
+        let material = plan
+            .req
+            .get("materialization")
+            .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?;
         if let Some(format) = material.get("responseFormat")
             && !request::response_format_valid(format)
             && !initial_content(material, plan.expanded_prompt.as_deref()).is_empty()

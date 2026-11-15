@@ -25,8 +25,10 @@ pub(super) fn continuation_key(req: &J) -> Option<&str> {
 }
 
 /// The spec's leading keys: its version, the invocation id, and the task label.
-pub(super) fn spec_header(req: &J) -> J {
-    let material = req.get("materialization").expect("validated");
+pub(super) fn spec_header(req: &J) -> Result<J, Fwd> {
+    let material = req
+        .get("materialization")
+        .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?;
     let mut spec = J::obj([("specVersion", J::str("harness-broker.invocation/v1"))]);
     if let Some(inv) = req.get("identity").and_then(|i| i.get("invocationId")) {
         spec.set("invocationId", inv.clone());
@@ -34,7 +36,7 @@ pub(super) fn spec_header(req: &J) -> J {
     if let Some(t) = s(material.get("taskContext").and_then(|t| t.get("taskId"))) {
         spec.set("labels", J::obj([("task", J::str(t))]));
     }
-    spec
+    Ok(spec)
 }
 
 /// The process block through its harness transport; the caller adds limits.
@@ -63,8 +65,10 @@ pub(super) fn process_spec(
 }
 
 /// `brokerCorrelation(req)`.
-pub(super) fn broker_correlation(req: &J) -> J {
-    let correlation = req.get("correlation").expect("validated");
+pub(super) fn broker_correlation(req: &J) -> Result<J, Fwd> {
+    let correlation = req
+        .get("correlation")
+        .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?;
     let mut out = J::Obj(vec![]);
     for k in [
         "requestId",
@@ -82,7 +86,7 @@ pub(super) fn broker_correlation(req: &J) -> J {
             out.set(k, v.clone());
         }
     }
-    out
+    Ok(out)
 }
 
 /// Same stable per-agent home used by Bun's preparePathFilter.

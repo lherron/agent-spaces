@@ -80,12 +80,21 @@ struct Sources {
 }
 
 impl Sources {
-    fn read(params: &J) -> Self {
-        let req = params.get("compileRequest").expect("validated").clone();
-        let placement = req.get("placement").expect("validated").clone();
-        let material = req.get("materialization").expect("validated").clone();
+    fn read(params: &J) -> Result<Self, Fwd> {
+        let req = params
+            .get("compileRequest")
+            .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?
+            .clone();
+        let placement = req
+            .get("placement")
+            .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?
+            .clone();
+        let material = req
+            .get("materialization")
+            .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?
+            .clone();
         let bundle = placement.get("bundle");
-        Sources {
+        Ok(Sources {
             agent_root: s(placement.get("agentRoot")).unwrap_or_default().to_owned(),
             project_root: s(placement.get("projectRoot")).map(str::to_owned),
             agent_name: s(bundle.and_then(|b| b.get("agentName")))
@@ -97,7 +106,7 @@ impl Sources {
             material,
             placement,
             req,
-        }
+        })
     }
 
     fn has_session_ref(&self) -> bool {
@@ -120,7 +129,7 @@ struct Preparation {
 }
 
 pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Result<Plan, Fwd> {
-    let src = Sources::read(params);
+    let src = Sources::read(params)?;
     let agent_root = src.agent_root.clone();
 
     // launchRefusal and the taskContext check refuse before writing.
@@ -600,7 +609,7 @@ fn system_prompt(
     let base = discovered.base.as_deref().unwrap_or_default();
     let template = match (discovered.template, src.placement.get("scaffoldPackets")) {
         (Some(t), _) => t,
-        (None, Some(packets)) => prompt::default_template_with_scaffold(base, packets),
+        (None, Some(packets)) => prompt::default_template_with_scaffold(base, packets)?,
         (None, None) => prompt::default_template(base),
     };
     let ctx = Ctx {

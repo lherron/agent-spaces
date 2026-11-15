@@ -606,24 +606,27 @@ fn trust_config_toml(
 // -- config.toml (codex-config.ts) ------------------------------------------------
 
 /// `applyDottedKey(target, dottedKey, value)`.
-fn apply_dotted(target: &mut J, dotted: &str, value: J) {
+fn apply_dotted(target: &mut J, dotted: &str, value: J) -> Result<(), Fwd> {
     let parts: Vec<&str> = dotted.split('.').filter(|p| !p.is_empty()).collect();
     let Some((last, path)) = parts.split_last() else {
-        return;
+        return Ok(());
     };
     let mut cursor = target;
     for part in path {
         if !matches!(cursor.get(part), Some(J::Obj(_))) {
             cursor.set(part, J::Obj(vec![]));
         }
-        let J::Obj(fields) = cursor else { return };
-        cursor = &mut fields
+        let J::Obj(fields) = cursor else {
+            return Ok(());
+        };
+        let (_, child) = fields
             .iter_mut()
             .find(|(k, _)| k == part)
-            .expect("set above")
-            .1;
+            .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
+        cursor = child;
     }
     cursor.set(last, value);
+    Ok(())
 }
 
 fn non_empty(v: &J) -> bool {
@@ -636,7 +639,7 @@ fn non_empty(v: &J) -> bool {
 }
 
 /// `buildCodexConfig(mcpConfig, overrides)`.
-fn codex_config(servers: &[(String, J)], overrides: &[J]) -> J {
+fn codex_config(servers: &[(String, J)], overrides: &[J]) -> Result<J, Fwd> {
     let mut base = J::obj([
         ("model", J::str("gpt-5.6-terra")),
         ("model_reasoning_effort", J::str("high")),
@@ -680,7 +683,7 @@ fn codex_config(servers: &[(String, J)], overrides: &[J]) -> J {
     }
     for o in overrides {
         for (k, v) in o.js_entries() {
-            apply_dotted(&mut base, k, v.clone());
+            apply_dotted(&mut base, k, v.clone())?;
         }
     }
     let mut features = match base.get("features") {
@@ -689,7 +692,7 @@ fn codex_config(servers: &[(String, J)], overrides: &[J]) -> J {
     };
     features.set("hooks", J::Bool(true));
     base.set("features", features);
-    base
+    Ok(base)
 }
 
 /// The target's codex options as a config override (composeTarget).
@@ -750,7 +753,7 @@ pub fn preflight_config(plans: &[SpacePlan], codex_options: Option<&J>) -> Resul
         }
     }
     overrides.extend(target_overrides(codex_options));
-    render_config(&codex_config(&servers, &overrides)).map(|_| ())
+    render_config(&codex_config(&servers, &overrides)?).map(|_| ())
 }
 
 /// `renderCodexConfigToml(config)`: canonical JSON round trip, then iarna.
@@ -989,7 +992,7 @@ pub fn compose_target(
     }
     let hooks_path = join(&[&home, "hooks.json"]);
     let hooks_config = merge_hooks(&[&hrc_hooks_config(&["Stop"]), &space_hooks]);
-    let base = codex_config(&servers, &overrides);
+    let base = codex_config(&servers, &overrides)?;
     let config = add_trust_state(&base, &hooks_path, &hooks_config, &[]).unwrap_or(base);
     write(&join(&[&home, "config.toml"]), &render_config(&config)?)?;
     write_json(&hooks_path, &hooks_config)?;

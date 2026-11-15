@@ -124,7 +124,12 @@ pub fn resolve_dir(var_root: Option<&Path>) -> PathBuf {
 }
 
 impl Metrics {
-    pub fn new(component: &str, product: &str, dir: PathBuf, warn: Warn) -> Metrics {
+    pub fn new(
+        component: &str,
+        product: &str,
+        dir: PathBuf,
+        warn: Warn,
+    ) -> std::io::Result<Metrics> {
         let metrics = Metrics {
             component: label(component),
             product: label(product),
@@ -149,9 +154,8 @@ impl Metrics {
                     std::thread::sleep(Duration::from_millis(delay));
                     flusher.drain(false);
                 }
-            })
-            .expect("spawn metrics thread");
-        metrics
+            })?;
+        Ok(metrics)
     }
 
     pub fn dir(&self) -> &Path {

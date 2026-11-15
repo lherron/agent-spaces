@@ -108,7 +108,7 @@ pub fn catalog(context: &J) -> Result<J, Fwd> {
         .get("paths")
         .and_then(|p| p.get("agentsRoot"))
         .and_then(J::as_str)
-        .unwrap();
+        .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
     let mut names: Vec<String> = std::fs::read_dir(root)
         .ok()
         .into_iter()
@@ -139,7 +139,9 @@ pub fn catalog(context: &J) -> Result<J, Fwd> {
             },
             Err(_) => return Err(fwd(crate::reason!("profile_unreadable"))),
         };
-        let id = context.get("identifiers").unwrap();
+        let id = context
+            .get("identifiers")
+            .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
         let mut row = J::obj([
             ("agentId", J::str(&name)),
             (
@@ -181,8 +183,13 @@ pub fn catalog(context: &J) -> Result<J, Fwd> {
                 J::Obj(
                     ["projectId", "mode", "lane", "harness", "presentation"]
                         .iter()
-                        .map(|k| ((*k).into(), id.get(k).unwrap().clone()))
-                        .collect(),
+                        .map(|k| {
+                            id.get(k)
+                                .cloned()
+                                .map(|v| ((*k).into(), v))
+                                .ok_or_else(|| fwd(crate::reason!("invalid_params")))
+                        })
+                        .collect::<Result<_, _>>()?,
                 ),
             ),
             ("warningCount", J::Num(0.0)),
