@@ -74,7 +74,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 [[package]]
 name = "cardo-app"
 version = "0.1.0"
-source = "git+https://github.com/lherron/cardo?rev=a8d7b7e76fa19f557d8a88c3be6a36377442a5b2#a8d7b7e76fa19f557d8a88c3be6a36377442a5b2"
+source = "git+https://github.com/lherron/cardo?rev=7082384616b2f03bcef7ee5b77593461a0c1161c#7082384616b2f03bcef7ee5b77593461a0c1161c"
 dependencies = [
  "cardo-core",
  "cardo-execution",
@@ -91,7 +91,7 @@ dependencies = [
 [[package]]
 name = "cardo-core"
 version = "0.1.0"
-source = "git+https://github.com/lherron/cardo?rev=a8d7b7e76fa19f557d8a88c3be6a36377442a5b2#a8d7b7e76fa19f557d8a88c3be6a36377442a5b2"
+source = "git+https://github.com/lherron/cardo?rev=7082384616b2f03bcef7ee5b77593461a0c1161c#7082384616b2f03bcef7ee5b77593461a0c1161c"
 dependencies = [
  "im",
  "regex",
@@ -102,7 +102,7 @@ dependencies = [
 [[package]]
 name = "cardo-execution"
 version = "0.1.0"
-source = "git+https://github.com/lherron/cardo?rev=a8d7b7e76fa19f557d8a88c3be6a36377442a5b2#a8d7b7e76fa19f557d8a88c3be6a36377442a5b2"
+source = "git+https://github.com/lherron/cardo?rev=7082384616b2f03bcef7ee5b77593461a0c1161c#7082384616b2f03bcef7ee5b77593461a0c1161c"
 dependencies = [
  "cardo-core",
  "serde_json",
@@ -111,7 +111,7 @@ dependencies = [
 [[package]]
 name = "cardo-runtime"
 version = "0.1.0"
-source = "git+https://github.com/lherron/cardo?rev=a8d7b7e76fa19f557d8a88c3be6a36377442a5b2#a8d7b7e76fa19f557d8a88c3be6a36377442a5b2"
+source = "git+https://github.com/lherron/cardo?rev=7082384616b2f03bcef7ee5b77593461a0c1161c#7082384616b2f03bcef7ee5b77593461a0c1161c"
 dependencies = [
  "cardo-core",
  "cardo-execution",
@@ -126,7 +126,7 @@ dependencies = [
 [[package]]
 name = "cardo-store"
 version = "0.1.0"
-source = "git+https://github.com/lherron/cardo?rev=a8d7b7e76fa19f557d8a88c3be6a36377442a5b2#a8d7b7e76fa19f557d8a88c3be6a36377442a5b2"
+source = "git+https://github.com/lherron/cardo?rev=7082384616b2f03bcef7ee5b77593461a0c1161c#7082384616b2f03bcef7ee5b77593461a0c1161c"
 dependencies = [
  "crossbeam-channel",
  "rusqlite",

@@ -11,9 +11,9 @@ publish = false
 # Every cardo crate names this one rev (cardo app guide §1). For local
 # work against a cardo checkout, patch it on the command line:
 #   cargo build --config 'patch."https://github.com/lherron/cardo".cardo-runtime.path="../../cardo/crates/cardo-runtime"' ...
-cardo-core = { git = "https://github.com/lherron/cardo", rev = "a8d7b7e76fa19f557d8a88c3be6a36377442a5b2" }
-cardo-app = { git = "https://github.com/lherron/cardo", rev = "a8d7b7e76fa19f557d8a88c3be6a36377442a5b2" }
-cardo-runtime = { git = "https://github.com/lherron/cardo", rev = "a8d7b7e76fa19f557d8a88c3be6a36377442a5b2" }
+cardo-core = { git = "https://github.com/lherron/cardo", rev = "7082384616b2f03bcef7ee5b77593461a0c1161c" }
+cardo-app = { git = "https://github.com/lherron/cardo", rev = "7082384616b2f03bcef7ee5b77593461a0c1161c" }
+cardo-runtime = { git = "https://github.com/lherron/cardo", rev = "7082384616b2f03bcef7ee5b77593461a0c1161c" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 indexmap = "2"
