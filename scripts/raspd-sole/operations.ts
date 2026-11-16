@@ -143,7 +143,7 @@ export async function checkOperations(rig: Rig, binary: string) {
       for (const deadline = Date.now() + 5_000; Date.now() < deadline; ) {
         const [readback] = await drive(
           join(r.scratch, 'kernel.sock'),
-          [JSON.stringify({ id: 'slice3', op: 'document.inspect', args: { document_id: 'aspd' } })],
+          [JSON.stringify({ id: 'slice3', op: 'graph.inspect', args: { graph: 'aspd' } })],
           5_000
         )
         document = readback?.result

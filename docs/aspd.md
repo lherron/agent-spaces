@@ -142,10 +142,15 @@ raspd writes only its own files. `rpc.request` goes to `<logDir>/raspd.log`
 `raspd.err.log`. Metrics go to `<var>/state/agent-spaces/metrics/raspd-<day>.ndjson`,
 in the T-11824 row format with the same two keys added. Over a drained window,
 per op, `relayed <= Bun's count <= relayed + upstream_failed`. Its cardo
-kernel serves the observation document `aspd` on `<ns>/run/raspd-kernel.sock`:
+kernel serves protocol 3 and the observation graph `aspd` on
+`<ns>/run/raspd-kernel.sock` (`graph.inspect {graph: "aspd"}`):
 service and release, Bun upstream health, per-op native, relayed and
 upstream_failed counts, and the recent compiles. That kernel is never on the
-request path.
+request path. It registers as the cardo app `aspd`; the unnamed instance at
+cardo's standard root is addressed as `cardo aspd …`. Private kernels can set
+`--kernel-root <absolute-path>` and `--kernel-instance <name>`; the existing
+`--kernel-socket` path is unchanged. `kernel.stop` refuses `stop_unsupported`
+with the namespace stop recipe; SIGTERM or SIGINT retires both surfaces.
 
 ### Roles: direct, fronted, sole
 

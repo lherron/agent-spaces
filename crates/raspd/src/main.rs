@@ -53,7 +53,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Notify;
 
-const USAGE: &str = "raspd serve --socket <absolute-path> [--upstream <absolute-path>] [--log <absolute-path>] [--kernel-socket <absolute-path>] [--release-root <dir>] [--metrics-dir <absolute-path>]";
+const USAGE: &str = "raspd serve --socket <absolute-path> [--upstream <absolute-path>] [--log <absolute-path>] [--kernel-socket <absolute-path>] [--kernel-root <absolute-path>] [--kernel-instance <name>] [--release-root <dir>] [--metrics-dir <absolute-path>]";
 /// Bun's own retire bound (launchd ExitTimeOut is 180 s).
 const RETIRE_LIMIT: Duration = Duration::from_secs(175);
 
@@ -63,6 +63,8 @@ struct Options {
     upstream: Option<PathBuf>,
     log: Option<PathBuf>,
     kernel_socket: PathBuf,
+    kernel_root: Option<PathBuf>,
+    kernel_instance: Option<String>,
     release_root: Option<PathBuf>,
     metrics_dir: Option<PathBuf>,
 }
@@ -95,16 +97,30 @@ fn parse(args: &[String]) -> Options {
     let mut upstream = None;
     let mut log = None;
     let mut kernel_socket = None;
+    let mut kernel_root = None;
+    let mut kernel_instance = None;
     let mut release_root = None;
     let mut metrics_dir = None;
     let mut it = rest.iter();
     while let Some(flag) = it.next() {
+        if flag == "--kernel-instance" {
+            let Some(value) = it.next() else {
+                refuse_usage(args)
+            };
+            // Use cardo's instance validation, keeping it off the aspc path.
+            if cardo_app::parts::Args::parse(&["--instance".into(), value.clone()]).is_err() {
+                refuse_usage(args);
+            }
+            kernel_instance = Some(value.clone());
+            continue;
+        }
         let value = it.next().map(PathBuf::from);
         let slot = match flag.as_str() {
             "--socket" => &mut socket,
             "--upstream" => &mut upstream,
             "--log" => &mut log,
             "--kernel-socket" => &mut kernel_socket,
+            "--kernel-root" => &mut kernel_root,
             "--release-root" => &mut release_root,
             "--metrics-dir" => &mut metrics_dir,
             _ => refuse_usage(args),
@@ -119,6 +135,8 @@ fn parse(args: &[String]) -> Options {
     Options {
         upstream,
         kernel_socket: kernel_socket.unwrap_or_else(|| dir.join("raspd-kernel.sock")),
+        kernel_root,
+        kernel_instance,
         socket,
         log,
         release_root,
@@ -252,10 +270,27 @@ async fn serve(options: Options, log: Log) -> Result<(), String> {
         ],
     );
 
+    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .map_err(|e| e.to_string())?;
+    let mut int = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .map_err(|e| e.to_string())?;
+
     // The kernel is observation only: if it can't start, aspc still serves.
-    // It goes first so tokio's signal handlers, registered right after it,
-    // chain to the kernel's (kernel::start).
-    let kernel = match kernel::start(observations.clone(), &options.kernel_socket, RETIRE_LIMIT) {
+    // The parts install no signal handlers. All blocking kernel work lives
+    // outside tokio's async workers; this runtime owns both retire paths.
+    let kernel_observations = observations.clone();
+    let kernel_args = cardo_app::parts::Args {
+        socket: Some(options.kernel_socket.clone()),
+        root: options.kernel_root.clone(),
+        instance: options.kernel_instance.clone(),
+        ..Default::default()
+    };
+    let kernel = match tokio::task::spawn_blocking(move || {
+        kernel::start(kernel_observations, kernel_args, RETIRE_LIMIT)
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("kernel startup task: {e}")))
+    {
         Ok(kernel) => Some(kernel),
         Err(error) => {
             log.lifecycle(
@@ -272,10 +307,6 @@ async fn serve(options: Options, log: Log) -> Result<(), String> {
             None
         }
     };
-    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-        .map_err(|e| e.to_string())?;
-    let mut int = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
-        .map_err(|e| e.to_string())?;
 
     let shared = server::Shared::new(
         release.clone(),
@@ -356,9 +387,10 @@ async fn serve(options: Options, log: Log) -> Result<(), String> {
     if still_ours {
         let _ = std::fs::remove_file(&options.socket);
     }
+    let kernel_retire =
+        tokio::task::spawn_blocking(move || kernel.map(kernel::Kernel::stop_and_join).transpose());
     shared.retire(RETIRE_LIMIT).await;
-    // The same signal stopped the kernel; its teardown removes its socket.
-    if let Some(Err(error)) = kernel.map(kernel::Kernel::join) {
+    if let Err(error) = kernel_retire.await.map_err(|e| e.to_string())? {
         log.lifecycle(
             "error",
             "raspd.kernel_teardown_failed",

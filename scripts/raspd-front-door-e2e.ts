@@ -551,7 +551,7 @@ const kernel = async (op: string, args: Record<string, unknown>) =>
     })
   })
 await Bun.sleep(1_500)
-const inspected = (await kernel('document.inspect', { document_id: 'aspd' }))['result'] as {
+const inspected = (await kernel('graph.inspect', { graph: 'aspd' }))['result'] as {
   bootstrapping: boolean
   nodes: { type: string; payload: Record<string, unknown> }[]
 }

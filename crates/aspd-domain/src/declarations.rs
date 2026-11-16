@@ -112,6 +112,8 @@ pub fn declarations() -> Value {
         "operations": [{
             "name": crate::OPERATION,
             "kind": "ingest",
+            "description": "Project aspd's in-process service observations into its rebuildable graph.",
+            "examples": [{"args": {}, "note": "The aspd ingest binding calls this with no configuration; attach it with ingest.attach."}],
             "writes": ["aspd.service", "aspd.upstream", "aspd.op", "aspd.compile"],
             "reports_catch_up": true,
             "input": {"kind": "object", "fields": {}},

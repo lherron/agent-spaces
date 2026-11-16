@@ -582,3 +582,7 @@ publish-semver-dry-run version tag="latest":
 # Serve the ACP Session Dashboard (acp-ops-web) against the local dev stack
 serve-dashboard:
     cd packages/acp-ops-web && bun run dev
+
+# Grade a built release's private aspd observation kernel at the Cargo-pinned cardo rev.
+conform-aspd release workdir artifact_dir:
+    python3 conformance/aspd/run.py --release "{{ release }}" --workdir "{{ workdir }}" --artifact-dir "{{ artifact_dir }}"

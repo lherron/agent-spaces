@@ -8,12 +8,12 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
-# Every cardo crate names this one rev (cardo embedding guide §1). For local
+# Every cardo crate names this one rev (cardo app guide §1). For local
 # work against a cardo checkout, patch it on the command line:
 #   cargo build --config 'patch."https://github.com/lherron/cardo".cardo-runtime.path="../../cardo/crates/cardo-runtime"' ...
-cardo-core = { git = "https://github.com/lherron/cardo", rev = "716cfce0e07320903ecbaddd291fadebcc90842b" }
-cardo-host = { git = "https://github.com/lherron/cardo", rev = "716cfce0e07320903ecbaddd291fadebcc90842b" }
-cardo-runtime = { git = "https://github.com/lherron/cardo", rev = "716cfce0e07320903ecbaddd291fadebcc90842b" }
+cardo-core = { git = "https://github.com/lherron/cardo", rev = "088b73ef62c97608bef100c676af7b569d8732c4" }
+cardo-app = { git = "https://github.com/lherron/cardo", rev = "088b73ef62c97608bef100c676af7b569d8732c4" }
+cardo-runtime = { git = "https://github.com/lherron/cardo", rev = "088b73ef62c97608bef100c676af7b569d8732c4" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 indexmap = "2"
