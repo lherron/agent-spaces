@@ -5,7 +5,7 @@
 //! written nothing.
 use super::bundle_audit::{self, BundleInput};
 use super::materialize::parse_global_lock;
-use super::prompt::{self, Ctx, EnvMap};
+use super::prompt::{Ctx, EnvMap, discovery, template, vars, zones};
 use super::provisioning::{self, ClaudeDefaults, CodexDefaults};
 use super::scope::{Handle, agent_session_env, handle_parts, parse_scope_ref};
 use super::util::{self, hash};
@@ -40,7 +40,7 @@ pub(super) struct Plan {
     pub(super) identity: J,
     pub(super) codex_options: Option<J>,
     pub(super) launch: Launch,
-    pub(super) system_prompt: Option<prompt::Resolved>,
+    pub(super) system_prompt: Option<zones::Resolved>,
     pub(super) expanded_prompt: Option<String>,
     pub(super) handle: Handle,
     pub(super) effective_environment_hash: String,
@@ -245,9 +245,9 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
     let expansion = Ctx {
         agent_root: agent_root.clone(),
         agents_root: dirname(&agent_root),
-        search_path: prompt::agent_root_search_path(
+        search_path: discovery::agent_root_search_path(
             src.project_root.as_deref(),
-            prompt::Roots::Ambient,
+            discovery::Roots::Ambient,
         )?
         .0,
         project_root: src.project_root.clone(),
@@ -269,7 +269,7 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
         pinned: None,
     };
     let expanded_prompt = match &launch_prompt {
-        Some(p) => Some(prompt::interpolate(p, &expansion)?),
+        Some(p) => Some(vars::interpolate(p, &expansion)?),
         None => None,
     };
     phases.lap("plan-runtime");
@@ -581,36 +581,26 @@ fn system_prompt(
     prep: &Preparation,
     asp_home: &str,
     explicit_asp_home: bool,
-) -> Result<Option<prompt::Resolved>, Fwd> {
+) -> Result<Option<zones::Resolved>, Fwd> {
     let agent_root = &src.agent_root;
-    let discovered = prompt::discover(
+    let discovered = discovery::discover(
         agent_root,
         src.project_root.as_deref(),
         asp_home,
         explicit_asp_home.then_some(None),
     )?;
-    if discovered.template.is_none()
-        && !std::path::Path::new(&join(&[agent_root, "SOUL.md"])).exists()
-    {
+    if !discovered.has_prompt(agent_root) {
         return Ok(None);
     }
-    let agent_profile = if discovered.template.is_some() {
-        discovered.raw_profile.clone()
-    } else {
-        discovered.base.as_ref().map(|b| {
-            J::obj([(
-                "instructions",
-                J::obj([("base", J::Arr(b.iter().map(J::str).collect()))]),
-            )])
-        })
-    };
+    let agent_profile = discovered.agent_profile();
     // buildDefaultTemplate(base, scaffoldPackets): the placement's packets
     // reach the prompt input through its placement spread.
-    let base = discovered.base.as_deref().unwrap_or_default();
-    let template = match (discovered.template, src.placement.get("scaffoldPackets")) {
-        (Some(t), _) => t,
-        (None, Some(packets)) => prompt::default_template_with_scaffold(base, packets)?,
-        (None, None) => prompt::default_template(base),
+    let template = match discovered.template {
+        Some(t) => t,
+        None => match src.placement.get("scaffoldPackets") {
+            Some(packets) => template::default_template_with_scaffold(discovered.base(), packets)?,
+            None => template::default_template(discovered.base()),
+        },
     };
     let ctx = Ctx {
         agent_root: agent_root.clone(),
@@ -630,5 +620,5 @@ fn system_prompt(
         exec_env: Some(prep.exec_env.clone()),
         pinned: None,
     };
-    Ok(Some(prompt::resolve_template(&template, &ctx)?))
+    Ok(Some(zones::resolve_template(&template, &ctx)?))
 }

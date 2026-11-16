@@ -1,7 +1,7 @@
 //! The plan's `resolvedBundle` (audit only): the bundle identity, the
 //! instruction slots by content hash (SOUL, instructions.base, HEARTBEAT,
 //! modes, scaffold packets), and the composed spaces by audit integrity.
-use super::prompt::{self, Ctx};
+use super::prompt::{Ctx, refs};
 use super::provisioning::{by_mode, dedupe_spaces};
 use super::util::sha256_hex;
 use super::{Fwd, fwd, s, spaces};
@@ -98,7 +98,7 @@ fn instructions(
         let path = if r.starts_with("agent-root:///") || r.starts_with("project-root:///") {
             // `resolveRootRelativeRef`; `None` where Bun's
             // `resolveInstructionRef` swallows the throw.
-            prompt::root_relative(r, &expansion_ctx_stub(agent_root, project_root))?
+            refs::root_relative(r, &expansion_ctx_stub(agent_root, project_root))?
         } else {
             join(&[agent_root, r])
         };

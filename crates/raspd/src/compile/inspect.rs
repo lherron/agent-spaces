@@ -11,9 +11,10 @@
 //! inputs follow the same disposition rows as placement inspection.
 use super::materialize::{ensure_asp_home, materialize_and_emit};
 use super::plan::classify;
+use super::prompt::{self, discovery, template, zones};
 use super::scope::{agent_session_env, handle_parts, parse_scope_ref};
 use super::util::{exec_environment, hash, now_iso};
-use super::{Compiled, Fwd, Phases, fwd, fwd_at, prompt, s};
+use super::{Compiled, Fwd, Phases, fwd, fwd_at, s};
 use crate::json::J;
 use crate::reads::jspath::{basename, dirname, join, resolve};
 use crate::reads::{Answer, Env, INSPECT_REQUEST_VERSION, declaration, profile};
@@ -127,23 +128,21 @@ fn inspect_agent(
 
 fn inspect_context_prompt(
     context: &J,
-) -> Result<Option<(prompt::Resolved, prompt::Inspected, bool)>, Fwd> {
+) -> Result<Option<(zones::Resolved, zones::Inspected, bool)>, Fwd> {
     let paths = context
         .get("paths")
         .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
     let path = |k| s(paths.get(k)).ok_or_else(|| fwd(crate::reason!("invalid_params")));
     let agent_root = path("agentRoot")?;
     let agents_root = path("agentsRoot")?;
-    let discovered = prompt::discover_explicit(agent_root, agents_root)?;
-    if discovered.template.is_none()
-        && !std::path::Path::new(&join(&[agent_root, "SOUL.md"])).exists()
-    {
+    let discovered = discovery::discover_explicit(agent_root, agents_root)?;
+    if !discovered.has_prompt(agent_root) {
         return Ok(None);
     }
     let template = match discovered.template {
         Some(t) => t,
-        None => prompt::default_template_with_scaffold(
-            discovered.base.as_deref().unwrap_or_default(),
+        None => template::default_template_with_scaffold(
+            discovered.base(),
             context
                 .get("scaffoldPackets")
                 .ok_or_else(|| fwd(crate::reason!("invalid_params")))?,
@@ -180,7 +179,7 @@ fn inspect_context_prompt(
         )),
         pinned: Some(prompt::Pinned::new(context.clone())),
     };
-    let (resolved, inspected) = prompt::resolve_inspected(&template, &ctx)?;
+    let (resolved, inspected) = zones::resolve_inspected(&template, &ctx)?;
     Ok(Some((resolved, inspected, template.append)))
 }
 
@@ -347,29 +346,18 @@ fn inspect_prompt(
     prep: &Preparation,
     task_context: Option<&J>,
     sources: (&str, Option<&str>),
-) -> Result<Option<(prompt::Resolved, prompt::Inspected, bool)>, Fwd> {
+) -> Result<Option<(zones::Resolved, zones::Inspected, bool)>, Fwd> {
     let agent_root = s(placement.get("agentRoot")).unwrap_or_default();
     let project_root = s(placement.get("projectRoot"));
     let (asp_home, agents_root) = sources;
-    let discovered = prompt::discover(agent_root, project_root, asp_home, Some(agents_root))?;
-    if discovered.template.is_none()
-        && !std::path::Path::new(&join(&[agent_root, "SOUL.md"])).exists()
-    {
+    let discovered = discovery::discover(agent_root, project_root, asp_home, Some(agents_root))?;
+    if !discovered.has_prompt(agent_root) {
         return Ok(None);
     }
-    let agent_profile = if discovered.template.is_some() {
-        discovered.raw_profile.clone()
-    } else {
-        discovered.base.as_ref().map(|b| {
-            J::obj([(
-                "instructions",
-                J::obj([("base", J::Arr(b.iter().map(J::str).collect()))]),
-            )])
-        })
-    };
+    let agent_profile = discovered.agent_profile();
     let template = match discovered.template {
         Some(t) => t,
-        None => prompt::default_template(discovered.base.as_deref().unwrap_or_default()),
+        None => template::default_template(discovered.base()),
     };
     let ctx = prompt::Ctx {
         agent_root: agent_root.to_owned(),
@@ -389,7 +377,7 @@ fn inspect_prompt(
         exec_env: Some(prep.exec_env.clone()),
         pinned: None,
     };
-    let (resolved, inspected) = prompt::resolve_inspected(&template, &ctx)?;
+    let (resolved, inspected) = zones::resolve_inspected(&template, &ctx)?;
     Ok(Some((resolved, inspected, template.append)))
 }
 
@@ -653,7 +641,7 @@ fn inspect(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd>
 fn evaluate(
     request: &J,
     evaluation_context: &J,
-    first: &Option<(prompt::Resolved, prompt::Inspected, bool)>,
+    first: &Option<(zones::Resolved, zones::Inspected, bool)>,
     release: &Release,
     phases: &mut Phases,
     pinned: bool,
@@ -971,7 +959,7 @@ fn inspection_compile_request(
     ])
 }
 
-fn prompt_part(r: &prompt::SectionReport) -> J {
+fn prompt_part(r: &zones::SectionReport) -> J {
     let part_id = format!("context-section:{}/{}/{}", r.zone, r.order, r.name);
     let disposition = match (&r.failed, r.skipped) {
         (Some(f), _) => J::obj([
