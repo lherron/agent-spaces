@@ -46,7 +46,7 @@ asp lint --hygiene $AVS_PROJECT/spaces/avs-demo/skills/avs-probe # Scanned 1 uni
 asp lint --hygiene $AVS_PROJECT/spaces/avs-demo --strict; echo $? # Scanned 0 units, exit 0
 asp lint --judge ~/praesidium/var/agents/clod                     # resolves to 4 units, exit 1 (no model run)
 asp token-rent --agent clod --now 2026-11-02T09:30:00Z
-asp token-rent --json --now 2026-11-02T09:30:00Z > $OUT          # 37 agents, 35 priced on 2026-11-09
+asp token-rent --json --now 2026-11-02T09:30:00Z > $OUT          # 30 agents, 26 priced on 2026-11-16 (arris, blaze, foundry, stella unpriced)
 python3 ~/praesidium/var/wrkq-artifacts/T-12323/05-doctor-hygiene/rent-check.py $OUT <agent>   # reported == computed
 sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
   "select broker_driver, count(*), sum(json_extract(spec_projection_json, '$.launch.systemPromptFile') is not null)
@@ -57,8 +57,12 @@ sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
 
 - `asp lint --hygiene <space dir>` scans 0 units and passes, even with `--strict`. Point it at a skill directory,
   an agent root or `var/agents`, never at a space root.
-- The `claude-code-hrcpty` broker driver's invocations carry `launch.systemPromptFile` (575/575 on 2026-11-09) and
-  report harness `claude-code`, so hrcpty Claude seats price like tmux ones.
+- The `claude-code-hrcpty` broker driver's invocations carry `launch.systemPromptFile` (1019/1019 on 2026-11-16) and
+  report harness `claude-code`, so hrcpty Claude seats price like tmux ones. The HRC driver mix on 2026-11-16:
+  `claude-code-hrcpty` and `codex-app-server` are live (codex prices through its AGENTS.md); `codex-desktop`,
+  `foundry-resident` and `arris-resident` rows carry no prompt file and their agents are unpriced; `claude-code-tmux`
+  (last 2026-10-29), `codex-cli-tmux` (2026-09-06) and `muse-serve` (2026-09-20) are retired. muse itself left
+  var/agents on 2026-11-10.
 - A seat's own newest invocation is the one priced while its prompt file exists, so `token-rent --agent <you>`
   shows this seat's task context (`Task ID: T-…`) as a layer.
 - `asp doctor`'s `Shared spaces root found` row is the agents root (`~/praesidium/var/agents`); its `--json` check
@@ -79,10 +83,10 @@ sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
 
 `asp doctor` passes on the scratch; `asp harnesses` shows 6/6 with a default per provider; hygiene on a real agent
 root returns findings with file:line and on the probe skill scans 1 unit; token-rent prices every agent whose
-newest invocation carries a prompt (claude, muse, codex drivers in the count above), and `residentTokens` equals the
-sum of `ceil(section chars / 4)` over the priced text for a claude, a muse and a codex agent (the codex one over its
+newest invocation carries a prompt (claude and codex drivers in the count above), and `residentTokens` equals the
+sum of `ceil(section chars / 4)` over the priced text for claude agents and codex agents (the codex ones over their
 context block only).
 
-Driven 2026-11-09 on scratch `t-12763` against checkout 93d96239 (T-12763):
-`var/wrkq-artifacts/T-12763/05-doctor-hygiene/drive.txt` (with `rent-check.py`; clod, mable, muse, cody and larry
-matched exactly; T-11378 reproduces).
+Driven 2026-11-16 on scratch `t-13644` against checkout e805b5cb (T-13644):
+`var/wrkq-artifacts/T-13644/05-doctor-hygiene/drive.txt` (with `rent-check.py`; clod, mable, cody and larry matched
+exactly; T-11378 reproduces; canonical `asp doctor` exits 0 with a model-audit warning).

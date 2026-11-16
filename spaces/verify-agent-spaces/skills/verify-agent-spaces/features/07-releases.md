@@ -16,7 +16,8 @@ hrc-runtime follows. `just install` on the canonical checkout does both and acti
   `workerBindings` (7 on 2026-11-02, including `claude-code-hrcpty`), `assetResolution`, `runtimeClosure:
   bun-compiled`, `mutableCheckoutReferences: false`). Releases built at or after c9f35e8f carry the capability
   `aspd.fixed-executable-release-root/v1` beside `harness-broker.offline-evidence/v1`; without it aspd activates the
-  release in legacy in-place mode (feature 6). Each top-level executable is a launcher script over `libexec/<name>`.
+  release in legacy in-place mode (feature 6). Builds since a7bc2bf7 add a third, `raspd.sole/v1`
+  (`scripts/asp-release.ts:802-806`); a sole namespace refuses a release without it (feature 6). Each top-level executable is a launcher script over `libexec/<name>`.
   No hrc-pty or hrcpty executable ships in a release. After the four Bun
   compiles it builds `raspd` (`cargo build --release --locked`, recorded in `release.json` as `runtimeClosure:
   cargo-native`; the top-level `runtimeClosure` still reads `bun-compiled`). On Apple silicon with `rbuild` on PATH the
@@ -47,6 +48,13 @@ hrc-runtime follows. `just install` on the canonical checkout does both and acti
   `publish-worktree-dry-run` likewise (not driven). A dry run needs Verdaccio reachable (`npm ping`). The real
   publishes (`publish-dev`, `publish-canonical`, `publish-worktree`, `publish-semver`) are operator-only, never
   part of a drive.
+- `just conform-aspd <release> <workdir> <artifact_dir>` (d6417322, `conformance/aspd/run.py`): grades a built
+  release's raspd observation kernel with cardo's wire and embed suites at the `crates/Cargo.toml` cardo rev. It needs
+  python3 and that rev in `~/.cargo/git/checkouts/cardo-*/<rev7>` (refuses `Cargo checkout for cardo <rev> missing`
+  otherwise). It starts its own raspd with `--kernel-root <workdir>/var --kernel-instance conformance` (`profile.py:79`,
+  `embed_profile.py:22`), so it never touches the system kernel record. Output: `cardo=<rev> release=… protocol=3`,
+  `aspd: 8/8 green, 23 n/a`, and the embed results (`record`, `standard_ops`, `surface`, `log` pass; `reload` n/a), exit
+  0; about 4 s (2026-11-16).
 - `bun run check:packs`: packs the 15 boundary packages through the publisher's staged copy and prints `PASS
   <pkg>` (stops at the first `FAIL`); no registry, never writes the checkout.
 - `just install [no-sync=1] [force-sync=1] [force-link=1]`: depends on `check-manager-space`, then clean, `bun
@@ -56,7 +64,7 @@ hrc-runtime follows. `just install` on the canonical checkout does both and acti
   lock-only `chore: sync bun.lock (` commit, **pushes it to HRC `origin/main`** and notifies `mable@hrc-runtime:primary`
   via `wrkc`), then build, install, `aspd-service.ts log-dir` (`var/logs/agent-spaces`) and `aspd-activate` a system
   aspd release (which needs cargo): on the fronted system namespace that re-copies and re-signs `var/aspd/bin/*` and
-  restarts both launchd jobs. Its post-check (justfile:494) reads only `runningEqualsSelected` and
+  restarts both launchd jobs (raspd only once the namespace is sole). Its post-check (justfile:502) reads only `runningEqualsSelected` and
   `serving.release.sourceCommit == HEAD`, not `bin/raspd`'s compiled-in commit or the signature (feature 6). Operator-scale; not part of a verification drive unless the task says so.
 
 ## How to get to it
@@ -81,6 +89,8 @@ cd <scratch>/clone && git status --porcelain --untracked-files=all | wc -l      
 for n in 1 2 3 4 5 6; do mkdir <scratch>/release-build/asp-00000000000$n-2020010${n}T000000Z-00000$n; done   # plant 6 old releases
 just build-asp-release <scratch>/release-build 2> rb.err                       # ok, sourceCommit = clone HEAD; rb.err: rbuild lines, retention
 <scratch>/release-build/<id>/libexec/raspd --version                           # raspd 0.1.0 (<clone HEAD>)
+grep -o 'rev = "[0-9a-f]*"' crates/Cargo.toml; ls -d ~/.cargo/git/checkouts/cardo-*/<rev7>   # the pinned cardo rev is cached
+just conform-aspd <scratch>/release-build/<id> <scratch>/conform-work <artifact_dir>/07-releases/conform   # 8/8 green, embed pass
 just publish-dev-dry-run; git status --porcelain | wc -l                      # SKIPPED 22 or 22 DRY_RUN lines; 0
 just publish-canonical-dry-run | grep -c '^DRY_RUN'                            # 22 on the clone's origin/main (the checkout's local main); off it: "not contained by … origin/main", exit 1
 touch zz && bun scripts/publish-local-verdaccio.ts --channel canonical --dry-run; rm zz   # clean source tree refusal, exit 1
@@ -109,19 +119,29 @@ env PATH=$HOME/.bun/bin:/usr/bin:/bin bun scripts/asp-release.ts build --output-
   GitHub `main` held that commit minutes later and `just install` activated it (10:04Z). Read that refusal as a clone
   artifact; `git checkout --detach origin/main` in the clone lists the 22 (`T-12323/07-releases/drive.txt`).
 
+- The cardo pin in `crates/Cargo.toml` moved five times in the week to 2026-11-16 (now c3639924, tag lattice-v1).
+  max3's `~/.cargo/git` had it, so build1's cargo build needed no fetch; a pass after a new pin may find it missing and
+  need ssh to GitHub for the first build. Check with `ls -d ~/.cargo/git/checkouts/cardo-*/<rev7>` before the build.
+- rbuild only mirrors a clone under `$HOME`; one under `/tmp` fails on build1 (`scripts/lib/scratch-release.ts:56-69`).
+  The avs scratch root is under `$HOME`.
+- The dirty-tree canonical-publish refusal is an uncaught throw: its last stderr line is `Bun v1.3.14 (macOS arm64)`,
+  and the message `Canonical publication requires a clean source tree` sits in the stack excerpt above it, exit 1.
+
 ## Proven when
 
 The dirty-tree and relative-root refusals exit 1 with their messages; inspect and install print `ok: true` with
 matching `releaseId` and `sourceCommit` and every executable resolved inside the release, and a second install is a
 no-op; the clone build prints a release whose `sourceCommit` is the clone's HEAD and whose `capabilities` include the
-fixed-exec capability, its raspd names that commit, and its retention line keeps the build plus the newest planted
+fixed-exec and `raspd.sole/v1` capabilities, its raspd names that commit, `conform-aspd` grades it green, and its retention line keeps the build plus the newest planted
 releases and removes the oldest; the dev dry-run skips or lists every package, the canonical one lists 22 from the clone's `origin/main`
 and refuses a dirty tree and a HEAD off it, semver lists 23, `check:packs` passes 15, and the clone stays
 clean.
 
-Driven 2026-11-09 on a scratch clone of 93d96239 (`main`; release asp-93d96239dd19-20261109T093804Z-c7a800 with raspd
-built on build1; retention kept it, the 4 newest of 6 planted releases and a sleeper-held one, removed the oldest 2;
-rebuild at fefcf61c in the same clone recompiled raspd with that commit), system release asp-93d96239dd19-… (T-12763):
-`var/wrkq-artifacts/T-12763/07-releases/drive.txt`, `rb.err`, `rb2.err`. Not driven: `just install` (operator-scale;
+Driven 2026-11-16 on a scratch clone of e805b5cb (`main`; clone + build 29 s, release
+asp-e805b5cb923b-20261116T092958Z-d1918b in 29 s with raspd built on build1, three capabilities; retention kept it, the
+4 newest of 6 planted releases and a sleeper-held one, removed the oldest 2; rebuild at 3ce37db6 in the same clone
+recompiled raspd with that commit in 13 s; `conform-aspd` 8/8 green + embed pass), system release
+asp-23285c53d130-… (T-13644): `var/wrkq-artifacts/T-13644/07-releases/drive.txt`, `rb.err`, `rb2.err`, `conform/`,
+`conform.out`. Not driven: `just install` (operator-scale;
 publishes, syncs hrc-runtime and activates the system aspd), rbuild's unreachable-host local fallback (a cold ~150 s
 max3 cargo build; source `asp-release.ts:281-337`), `publish-worktree-dry-run`, and any non-dry-run publish.

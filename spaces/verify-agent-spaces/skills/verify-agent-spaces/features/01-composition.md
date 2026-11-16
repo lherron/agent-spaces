@@ -17,9 +17,11 @@ list,path,diff}.ts`, `apps/cli/src/commands/{repo,spaces}/`, resolution in `core
 - `asp describe [target] --harness <h>`: hooks, skills, tools and lint warnings as the harness would materialize
   them. `<h>` is any of the six harness ids (`agent-harness`, `claude`, `claude-hrcpty`, `codex`, `codex-hrcpty`,
   `muse`). For an hrcpty id it still lists `supports`-gated spaces that `install` drops (T-12329, feature 2).
-- Since aa3bb12d (T-12326) `explain` and `lint` read each locked space's `space.toml` for an optional `[path] exclude`
-  list (composed as a sorted union; the PATH filter itself is compile-side). A synthetic agent plugin with no
-  `space.toml` counts as no exclusion (source; no space declares one yet, so not driven).
+- Since aa3bb12d (T-12326) `explain` reads each locked space's `space.toml` for an optional `[path] exclude` list and
+  prints the sorted union as `PATH exclude: …` under Composed content (the PATH filter itself is compile-side). `lint`
+  does not read it: adding `[path] exclude` to a scratch space left `lint --json` byte-identical. `prae-only` declares
+  one (`wrkq wrkc wrkf wrkp hrc asp aspc`), so canonical `explain clod` shows it. A synthetic agent plugin with no
+  `space.toml` counts as no exclusion (source) (2026-11-16, `T-13644/01-composition/drive.txt`).
 - `asp list`: targets (locked or unlocked, env hash), paths (project, ASP_HOME, store, cache) and every agent root
   found (`canonical` for `~/praesidium/var/agents/<id>`).
 - `asp path <spaceId>`: the filesystem path of a shared space.
@@ -30,7 +32,8 @@ list,path,diff}.ts`, `apps/cli/src/commands/{repo,spaces}/`, resolution in `core
   `--registry <path>` or `ASP_AGENTS_ROOT` overrides). `repo init` installs the generated `agent-spaces-manager`
   space (hook script 0755) or prints `Manager space already present`. `new-space` writes `space.toml` plus
   `commands/ skills/ agents/ mcp/`, no `hooks/` (an empty one trips W204). `repo status` lists every directory under
-  `spaces/`; `spaces list` only those whose `space.toml` parses (14 vs 13 on 2026-10-19: `archived-unused`). The git
+  `spaces/`; `spaces list` only those whose `space.toml` parses (14 vs 13 on 2026-10-19: `archived-unused`; 13 and 13
+  on 2026-11-16). The git
   registry verbs `asp repo publish|tags|gc` were removed (T-10367) and exit 2 `unknown command '<verb>'`.
 - `describe` on a target of only `@dev` and project spaces skips the shared root's registry fetch since 15dbde97
   (`~/praesidium/var/agents/.git/FETCH_HEAD` mtime unchanged; a `materialize.registry-fetch` `skipped` path row).
@@ -65,9 +68,11 @@ cd ~/praesidium/agent-spaces && asp lint --json
 - `explain` exits 1 `Target not found in lock` when the target is in `asp-targets.toml` but not the lock (a
   hand-edited targets file, or a canonical lock rewritten by a single-target `asp run` dry-run); rerun `asp install`.
   On 2026-11-02 the canonical lock lacked animata, animan, locallarry and foundry
-  (`T-12323/01-composition/canonical-explain-per-target.txt`).
+  (`T-12323/01-composition/canonical-explain-per-target.txt`); on 2026-11-16 it still did, and it also held stale
+  `muse` and `mux` targets that `asp-targets.toml` no longer has (`T-13644/01-composition/drive.txt`).
 - Canonical `asp lint --json` warnings follow `var/agents` content: 3 `W204` errors on 2026-11-02 (the
-  `console-defaults` space has a `hooks/` dir with no hooks config), `[]` on 2026-10-26. During T-12326's pre-landing
+  `console-defaults` space has a `hooks/` dir with no hooks config; on 2026-11-16 clod's comes from
+  `prae-console-defaults`, muse's and cody's from `console-defaults`), `[]` on 2026-10-26. During T-12326's pre-landing
   work it failed `{"error":{"message":"File not found"}}` exit 1; fixed before aa3bb12d (`T-12323/01-composition/drive.txt`).
 - `asp path` resolves only shared spaces; a project space refuses `Space "<id>" not found`.
 - `asp repo init`, `asp repo new-space` and `asp spaces init` WRITE into the resolved shared root, which is the
@@ -88,6 +93,6 @@ order with the defaults hooks and lists `avs-probe (from avs-demo)` under compos
 refuse with exit 2; `asp lint --json` on the canonical project exits 0 with its warnings array (3 W204 on
 2026-11-02).
 
-Driven 2026-11-09 on scratch `t-12763` against checkout 93d96239 (T-12763):
-`var/wrkq-artifacts/T-12763/01-composition/drive.txt` (canonical lint: 3 `W204`; the lock still lacks animata, animan,
-locallarry and foundry).
+Driven 2026-11-16 on scratch `t-13644` against checkout e805b5cb (T-13644):
+`var/wrkq-artifacts/T-13644/01-composition/drive.txt` (canonical lint: 3 `W204`; the lock still lacks animata, animan,
+locallarry and foundry; `[path] exclude` driven on a scratch copy).

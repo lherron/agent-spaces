@@ -50,7 +50,9 @@ Scratch or live:
   `asp` process appends usage rows to `<var root>/state/agent-spaces/metrics/{asp-cli,paths}-<day>.ndjson`, and
   `ASP_HOME` does not move them, so without it a scratch drive writes the node's production day files (T-11824;
   `T-11875/live/metrics-isolation.txt`). Export it in any shell that runs `asp` for a drive, live reads included. Isolated aspd namespaces, scratch Codex homes, release builds and a scratch clone
-  all live under the same root, so `avs scratch down` removes them together.
+  all live under the same root, so `avs scratch down` removes them together. A scratch aspd namespace that runs raspd
+  (front-door, sole) must also run with `HOME=<root>/khome`: raspd's kernel record defaults to
+  `$HOME/praesidium/var/run/cardo/kernels/aspd.json`, the system's (T-13646, [aspd](features/06-aspd.md) Gotchas).
 - **Scratch clone.** Anything that needs a clean tree (`just build-asp-release`) runs in
   `git clone ~/praesidium/agent-spaces <root>/clone`, then `bun install` and `bun run build` there (about 20 s). Never in the shared checkout.
 - **Live (read-only).** The system aspd (`just aspd-status ~/praesidium/var/aspd`, `avs aspc

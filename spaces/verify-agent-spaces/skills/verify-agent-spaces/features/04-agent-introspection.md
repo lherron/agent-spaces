@@ -53,7 +53,8 @@ asp resources plan clod --project agent-spaces          # refuses: that schedule
 asp resources plan clod                                 # required option '--project <project>', exit 2
 asp resources plan foundry --project foundry --include schedules/foundry-daily-report.toml   # timezone America/Chicago
 asp self memory paths; asp self memory inspect  # memory, user, persona with zone labels and chars/budget
-asp agents catalog --context $CTX --json        # 52 agents, 0 errors on 2026-11-09
+asp agents catalog --context $CTX --json        # 33 agents, 0 errors on 2026-11-16 (var/agents c420d10 retired 20)
+asp agents inspect --request $REQ --context $CTX --json   # with foundry's ids/root: ok false, agent_self_brokered, exit 1 (stella: agent_participant_only)
 asp agents inspect --request $REQ --context $CTX --json
 ```
 
@@ -82,6 +83,14 @@ asp agents inspect --request $REQ --context $CTX --json
   bytes with 2 once `~/.local/bin` is on PATH. clod's own template (rebuilt on prae, var/agents 08bd235) has no such
   sections at all. The `{"content": …}` objects earlier passes counted were that exec output, not the command's own
   format (2026-11-09, `T-12763/04-agent-introspection/drive.txt`).
+- **`agents inspect` refuses agents HRC won't launch.** foundry (`[placement] launch = "self-brokered"`) returns `ok:
+  false` with `agent_self_brokered` and stella (`participant-only`) with `agent_participant_only`, exit 1
+  (`compile-runtime-plan.ts:22-60`), while `asp run`/`asp agent` still print a launch for both (feature 3). Their
+  catalog rows have 0 errors (2026-11-16, `T-13644/04-agent-introspection/{request,context}-{foundry,stella}.json`).
+- The prompt's scope line renders from the assigned scope (`ScopeRef: agent:larry:project:agent-spaces` in the pinned
+  inspect, no literal `{{agentProjectScopeRef}}` there, in `resolve-reminder clod` or in `self prompt reminder
+  --recompute`). `asp self inspect --raw-env` does not list `SCRATCH`, although HRC sets it on every seat (946d366c)
+  (2026-11-16).
 - The catalog's `defaultContextSummary` matched the context file's identifiers (project, mode, harness `codex`)
   for every agent on 2026-10-05; don't read it as each agent's profile default without checking the profile.
 
@@ -90,11 +99,11 @@ asp agents inspect --request $REQ --context $CTX --json
 `asp self inspect` names this seat's scope and task; `asp self paths` resolves the agent root; `resolve-reminder`
 prints the reminder text (with the wrkq and wrkc guides only when those CLIs are on PATH); `self memory paths` lists the
 three targets; `agents catalog` returns every agent root with `errorCount` 0; `agents inspect`
-returns `ok: true` with parts and dispositions; `resources plan` prints a v1 plan for the project its resources
+returns `ok: true` with parts and dispositions, and `ok: false` with the launch-mode code for foundry and stella; `resources plan` prints a v1 plan for the project its resources
 target, projects `[trigger].timezone`, and refuses a mismatched project, a bad zone and a top-level `timezone`.
 
-Driven 2026-11-09 from seat `clod@agent-spaces:T-12763` against checkout 93d96239 (T-12763):
-`var/wrkq-artifacts/T-12763/04-agent-introspection/` (`drive.txt`, `context.json`, `context-pinned.json`,
-`context-pinned-env.json`, `request.json` and the three `inspect-*.json`; empty responses: 7 parts, prompt `failed`;
+Driven 2026-11-16 from seat `clod@agent-spaces:T-13644` against checkout e805b5cb (T-13644):
+`var/wrkq-artifacts/T-13644/04-agent-introspection/` (`drive.txt`, `context.json`, `context-pinned.json`,
+`context-pinned-env.json`, `request.json`, the foundry and stella pairs and the three `inspect-*.json`; empty responses: 7 parts, prompt `failed`;
 pinned: 24 parts, 13 effective / 8 skipped / 3 failed; pinned with env: 16 effective / 8 skipped). The timezone
 refusals were last driven 2026-10-26 (`T-11875/04-agent-introspection/`); no `resources/` code change since.

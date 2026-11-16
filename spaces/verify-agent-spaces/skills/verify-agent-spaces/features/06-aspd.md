@@ -2,7 +2,7 @@
 
 `aspd` serves the ASPC compile and inspection plane (`aspc/0.1`, NDJSON JSON-RPC over a Unix socket) from one
 immutable release in an explicit namespace. HRC compiles every launch through it. Code: `scripts/aspd-service.ts`
-(the verbs: init, start, stop, restart, supervise, activate, log-dir, status, front-door-*; Bun aspd, raspd, launchd
+(the verbs: init, start, stop, restart, supervise, activate, log-dir, status, front-door-*, sole-enable; Bun aspd, raspd, launchd
 jobs and namespace records under `scripts/aspd-service/`), `harness/aspc-facade/src/aspd.ts`, methods and
 validators in `contracts/aspc-protocol/src/{types,schemas,inspection-params}.ts`, the client
 `spaces-aspc-protocol/unix-client`. Doc: `docs/aspd.md`.
@@ -52,23 +52,48 @@ validators in `contracts/aspc-protocol/src/{types,schemas,inspection-params}.ts`
   moves Bun to `run/aspd-bun.sock`, starts raspd on `run/aspd.sock` (plus `run/raspd.json`, `run/raspd-kernel.sock`,
   `<logDir>/raspd{,.err}.log`) and records `frontDoor {bunSocketPath, label}` in the config; the label is used only
   when supervised. Status then reads `mode: "fronted"`, `bunAnswering`, `raspd.executablePath`, `raspdLaunchdPid`,
-  `publicFrontDoor.native` (the 9 ops raspd answers itself: `aspc.hello`, `health`, `version`, `surface`,
-  `resolveRuntimeDeclaration`, `observeRuntimeCapability`, `observeContinuationArtifact`, `compileHarnessInvocation`,
-  `inspectRuntimePlacement`; unknown methods and the rest relay to Bun) and both releases; `raspd.log` lines carry `servedBy: native|bun`. Disable stops raspd and puts
-  Bun back on the public socket (`mode: "direct"`).
+  `publicFrontDoor.native` (the 11 ops raspd answers itself: `aspc.hello`, `health`, `version`, `surface`,
+  `catalogAgents`, `inspectAgent` (333d21e7, T-13054: never relayed), `resolveRuntimeDeclaration`,
+  `observeRuntimeCapability`, `observeContinuationArtifact`, `compileHarnessInvocation`, `inspectRuntimePlacement`)
+  and both releases; `raspd.log` lines carry `servedBy: native|bun` and `relay`. raspd refuses `catalogAgentInspection`,
+  `inspectAgentSelection` (-32603 `AGENT_INSPECTION_PRODUCER_UNAVAILABLE`) and `prepareProcessInvocation` (-32601
+  `op_unsupported`) itself in every role (`servedBy: native`, `relay: refused`; hello reports them false). Only unknown
+  methods and compile fallbacks still reach Bun when fronted (`servedBy: bun`, `relay: relayed`). Disable stops raspd
+  and puts Bun back on the public socket (`mode: "direct"`); it refuses while sole.
+- **Roles: direct, fronted, sole (a7bc2bf7/a17fa694, T-13055/T-13039).** `status.role` and the activate result's
+  `role` name it. `just aspd-sole-enable <ns>` (`aspd-service.ts sole-enable`) works only from fronted (from direct:
+  `namespace is direct; run front-door-enable first, sole is entered from fronted`) and only on a release whose
+  `capabilities` list `raspd.sole/v1` (every build since a7bc2bf7; older: `predates raspd sole mode (no raspd.sole/v1
+  capability)`). It stops Bun and raspd and restarts raspd alone on `run/aspd.sock` with no upstream: `aspd-bun.sock`
+  gone, `status.runningProcess` and `launchdPid` null, `frontDoor {mode: sole, bunSocketExists: false, bunJobLoaded:
+  null}`, `version.frontDoor.role: sole`; an unknown method is refused natively (`op_unknown`, `relay: refused`). In
+  sole, `start` reports `raspd.alreadyRunning`, `activate` of a pre-sole release refuses before anything stops, and
+  `activate` of a sole release returns `raspdRetired`/`raspdStarted` with no `retired`/`started`.
+  `front-door-enable` is the way back (`from: sole`); with a label other than the recorded one it refuses `… front-door-enable
+  keeps it`.
 - Methods: `aspc.hello`, `catalogAgents`, `inspectAgent`, `catalogAgentInspection`, `inspectAgentSelection`,
   `compileHarnessInvocation` (v2 requests only), `resolveRuntimeDeclaration`, `inspectRuntimePlacement`,
   `observeRuntimeCapability`, `observeContinuationArtifact`, `prepareProcessInvocation`. Refusals: `-32601 Method
   not found`, `-32602 Invalid params` with `data.issues[]`, each `{path, code, message}` rooted at `params.` with the
   message leading with that path (`params.evaluationContext must be an object`). Every refusal also carries
   `data.reason` and `data.advice` (`op_unknown`, `invalid_params`); a bad frame is `-32700` with `empty_frame` or
-  `frame_too_large` (over 16777216 bytes) (f6acf0ee).
+  `frame_too_large` (over 16777216 bytes) (f6acf0ee). Through raspd (fronted or sole), a params refusal on a native
+  op comes from raspd's disposition table instead: `-32602 Invalid params: raspd refused: Params fail Bun's aspc params
+  validator … [invalid_params]` with `data {reason, advice}` and no `issues[]` (2026-11-16, `T-13644/06-aspd/drive.txt`).
 - Discovery: `health`, `version`, `surface` accept absent or empty params. Health is process-only; version reports
   the serving build/interface/capabilities; surface projects registered ops with summaries and stream declarations.
 - Request log: one canonical JSON `rpc.request` per complete request (listener, op, client, outcome, durationMs),
   including malformed frames and unknown ops. Registered compile calls additionally retain operational
   `request.answered` (method, startedAt, durationMs, outcome, replyBytes; error on refusal, phases on compilation).
-  Every line in `aspd.log` and `aspd.err.log` is L2 JSON (`{ts, level, component, event, data}`); read `data.*`.
+  New lines in `aspd.log` and `aspd.err.log` are L2 JSON (`{ts, level, component, event, data}`); read `data.*`. The
+  system `aspd.err.log` still holds 1731 plain pre-L2 lines from before 2026-10-26 (and `raspd.err.log` 33), so filter
+  `^{` before parsing (2026-11-16).
+- **Observation kernel (d6417322, cardo protocol 3).** raspd also serves a cardo kernel on `run/raspd-kernel.sock`
+  and writes a registry record for mount `aspd` (pid, socket, `protocol {major: 3}`, cardo rev, graphs) at
+  `<kernel root>/run/cardo/kernels/aspd.json`, removed when raspd stops. raspd takes `--kernel-root`/`--kernel-instance`,
+  but aspd-service passes neither, so the root is cardo's default `$HOME/praesidium/var`: the system record is
+  `~/praesidium/var/run/cardo/kernels/aspd.json` (pid = `raspdLaunchdPid`). The kernel is observation only; aspc serves
+  if it fails. `just conform-aspd` grades it on a built release (feature 7).
 - `aspc manifest|verify-release` (the compiler CLI) produces and checks the frozen release manifest.
 - `just build-aspd-pilot-client <abs root>` builds the T-08539 aspd pilot client (the historical HRC stand-in for
   `scripts/aspd-pilot/scenario.ts --client`) after a source-closure gate; it refuses a dirty checkout (source,
@@ -83,48 +108,66 @@ which posts no wrkp fact) and `avs aspc ~/praesidium/var/aspd/run/aspd.sock <met
 ## Driving it
 
 ```bash
-just aspd-status ~/praesidium/var/aspd                     # fronted; runningEqualsSelected; executablePath <ns>/bin/aspd
-avs aspc ~/praesidium/var/aspd/run/aspd.sock version       # frontDoor.sourceCommit == release.sourceCommit, 9 native ops
+just aspd-status ~/praesidium/var/aspd                     # role fronted; runningEqualsSelected; executablePath <ns>/bin/aspd
+avs aspc ~/praesidium/var/aspd/run/aspd.sock version       # frontDoor.sourceCommit == release.sourceCommit, role front, 11 native ops
 codesign -dv ~/praesidium/var/aspd/bin/aspd                # Identifier=com.praesidium.aspd, Signature=adhoc
-avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.hello
+avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.hello    # catalogAgentInspection/inspectAgentSelection/prepareProcessInvocation false
 avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.catalogAgents "{\"evaluationContext\": $(cat $CTX)}"
-avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.noSuchMethod          # -32601
-avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.catalogAgents '{}'    # -32602, issues[0].message params.evaluationContext must be an object
-grep '"aspc.catalogAgents"' ~/praesidium/var/logs/agent-spaces/raspd.log | tail -1   # listener raspd, servedBy bun
-NS=<scratch>/aspd-ns
-just install-asp-release ~/praesidium/var/aspd/releases/<releaseId> $NS/releases
+grep '"aspc.catalogAgents"' ~/praesidium/var/logs/agent-spaces/raspd.log | tail -1   # listener raspd, servedBy native
+avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.noSuchMethod          # -32601 op_unknown; raspd.log servedBy bun, relay relayed
+avs aspc ~/praesidium/var/aspd/run/aspd.sock aspc.catalogAgents '{}'    # -32602 "Invalid params: raspd refused: …", no issues[]
+jq '{pid,socket,state}' ~/praesidium/var/run/cardo/kernels/aspd.json    # pid == raspdLaunchdPid; note it and the mtime
+NS=<scratch>/aspd-ns   # run every scratch verb through a wrapper that sets HOME=<scratch>/khome (Gotchas: kernel record)
+just install-asp-release ~/praesidium/var/aspd/releases/<sole-capable id> $NS/releases   # and a pre-sole one (no raspd.sole/v1)
 just aspd-init $NS; just aspd-status $NS                  # serving unavailable, selectedRelease null
-just aspd-activate $NS <releaseId>                         # started pid, serving hello, readyAt
-avs aspc $NS/run/aspd.sock aspc.catalogAgents "{\"evaluationContext\": $(cat $CTX)}"
-just aspd-front-door-enable $NS; just aspd-front-door-status $NS; just aspd-front-door-disable $NS
+just aspd-activate $NS <sole-capable id>                   # role direct, executableMode fixed, retention
+just aspd-sole-enable $NS                                  # refuses: namespace is direct
+just aspd-front-door-enable $NS; just aspd-front-door-status $NS   # fronted, 11 native; scratch record under <scratch>/khome
+avs aspc $NS/run/aspd.sock aspc.catalogAgents "{\"evaluationContext\": $(cat $CTX)}"   # $NS/logs/raspd.log servedBy native
+just aspd-activate $NS <pre-sole id>; just aspd-sole-enable $NS    # activates while fronted; sole-enable refuses (no raspd.sole/v1)
+just aspd-activate $NS <sole-capable id>; just aspd-sole-enable $NS   # mode sole; status role sole, runningProcess null
+just aspd-start $NS; just aspd-stop $NS; just aspd-start $NS       # raspd.alreadyRunning / raspd stopped / raspd started
+just aspd-activate $NS <pre-sole id>                       # refuses; still serving sole
+just aspd-front-door-disable $NS                           # refuses while sole
+just aspd-front-door-enable $NS; just aspd-front-door-disable $NS  # from sole -> fronted -> direct
 just install-asp-release $LEGACY $NS/releases                # a pre-c9f35e8f release; see Gotchas for where one survives
 sh -c 'sleep 300; :' $NS/releases/<older id>/libexec/harness-broker >/dev/null 2>&1 &   # holds one release "in use"
 just aspd-activate $NS <legacy id>                         # executableMode legacy-release; one legacy-fallback line; retention keeps the held one
 just aspd-activate $NS <fixed id>                          # after killing the sleeper: retention.removed names it
 just aspd-stop $NS; just aspd-status $NS                   # runningProcess null, unavailable
 just aspd-status ~/praesidium/var/aspd                     # same launchdPid and raspdLaunchdPid: untouched
-bun test scripts/aspd-service.test.ts scripts/aspd-service-retention.test.ts   # 13 + 2: launch script, stable exec, adoption, error-5 retry, retention
+jq .pid ~/praesidium/var/run/cardo/kernels/aspd.json; stat -f %m ~/praesidium/var/run/cardo/kernels/aspd.json   # unchanged
+bun test scripts/aspd-service.test.ts scripts/aspd-service-retention.test.ts   # 15 across both: launch script, stable exec, adoption, error-5 retry, retention
 plutil -extract ProcessType raw ~/Library/LaunchAgents/com.praesidium.aspd.plist   # Interactive (raspd too)
 ```
 
 Run the scratch verbs as `bun scripts/aspd-service.ts <verb> $NS` (the `just` recipes post a `run.settled` fact) with
-a stripped environment (`env -i HOME=… PATH=… USER=… LOGNAME=… SHELL=… TMPDIR=… LANG=…`) so the daemon inherits no
-seat variables.
+a stripped environment (`env -i HOME=<scratch>/khome PATH=… USER=… LOGNAME=… SHELL=… TMPDIR=… LANG=…`) so the daemon
+inherits no seat variables and its kernel record stays in the scratch; `T-13644/06-aspd/svc.sh` is that wrapper.
 
 ## Gotchas
 
+- **A scratch raspd with the real `HOME` overwrites the system kernel record, then deletes it on stop (T-13646).**
+  aspd-service starts raspd without `--kernel-root`, the kernel lock is per kernel socket, and the record path is per
+  mount (`aspd`) under `$HOME/praesidium/var`. Mable seats read that record. So every scratch `front-door-enable`,
+  `sole-enable`, `start` or `stop` that runs raspd must run with `HOME=<scratch>/khome`; `inheritEnv` passes it
+  through. On 2026-11-16 the scratch record landed at `<scratch>/khome/praesidium/var/run/cardo/kernels/aspd.json`
+  (pid 87108) while the system record stayed pid 12821 at the same mtime, and the catalog still answered 33 agents
+  (`T-13644/06-aspd/drive.txt`). Do not run `scripts/raspd-sole-role-e2e.ts` or `raspd-sole-supervised-e2e.ts` on a
+  shared host until T-13646 lands; they have the same hazard.
 - **Three identities; keep them apart.** Deployed = `selectedRelease.releaseId` (active.json). Served =
   `serving.release` / `frontDoor.publicRelease` (raspd reads `release.json` at `--release-root`) and
   `frontDoor.bunRelease` (Bun's compiled-in identity, which Bun checks against the root at startup). Code identity of
   the public listener = `frontDoor.publicFrontDoor.sourceCommit` (compiled into `bin/raspd`; raspd does not check it
   against the release), also `version.frontDoor.sourceCommit` over the socket. The signing identity is only in the
   activation record and `codesign -dv <ns>/bin/<prog>`. `just install`'s post-check reads only
-  `runningEqualsSelected` and `serving.release.sourceCommit`. On 2026-11-09 all three named 93d96239
-  (`asp-93d96239dd19-20261108T171836Z-eb8384`, fixed, ad hoc). Another seat's `just install` can move them mid-pass (it
+  `runningEqualsSelected` and `serving.release.sourceCommit`. On 2026-11-16 all three named 23285c53
+  (`asp-23285c53d130-20261116T005628Z-7f96a5`, fixed, ad hoc, role fronted). Another seat's `just install` can move them mid-pass (it
   did at 10:04Z on 2026-11-02); re-read status at the end of a pass before quoting the deployed release
   (`T-12763/06-aspd/drive.txt`, `live/system-aspd-final.txt`).
-- `$CTX` for the catalog is feature 4's evaluation-context file; over the socket the same 52 agents came back as from
-  `asp agents catalog`, from both the system and the scratch daemon (2026-11-02, `T-12323/06-aspd/drive.txt`).
+- `$CTX` for the catalog is feature 4's evaluation-context file; over the socket the same agents come back as from
+  `asp agents catalog`, from both the system and the scratch daemon: 33 on 2026-11-16 after var/agents retired 20
+  (`T-13644/06-aspd/drive.txt`).
 - **The system namespace is fronted and supervised** (since 2026-10-26T13:04Z, `activations.ndjson`): config
   `frontDoor {bunSocketPath: run/aspd-bun.sock, label: com.praesidium.raspd}`, plists `com.praesidium.aspd` and
   `com.praesidium.raspd`, both execing `<ns>/bin/*` with `--release-root`. Bun answers on `aspd-bun.sock`; the public
@@ -137,12 +180,15 @@ seat variables.
   KeepAlive job, and `stop` leaves its plist behind. Prove supervision with the unit test, or drive it with a
   scratch `HOME` (the plist lands in `$HOME/Library/LaunchAgents`), `PRAESIDIUM_LAUNCH_SHIM` set to the real shim, and
   a stub `launchctl` first on PATH that runs the plist's ProgramArguments into its StandardOutPath; keep the scratch
-  socket path under 104 bytes (`T-11719` artifacts). Fronting a scratch namespace is safe unsupervised (the raspd label
-  is used only when supervised); a supervised scratch with the default label would collide with `com.praesidium.raspd`.
-- **No legacy release is left on the system namespace or the default build root** (retention, above). A pre-c9f35e8f
-  release survives at `~/praesidium/var/scratch/agent-spaces/T-12156/releases/asp-d0ae39b62d90-20261030T144744Z-19b3fa`
-  (capabilities `harness-broker.offline-evidence/v1` only, raspd present); use it as `$LEGACY`, or build one in a
-  scratch clone at a commit before c9f35e8f (2026-11-09, `T-12763/06-aspd/drive.txt`).
+  socket path under 104 bytes (`T-11719` artifacts). Fronting a scratch namespace is safe unsupervised with an isolated `HOME` (the raspd label
+  is used only when supervised; the kernel record is the first Gotcha); a supervised scratch with the default label would collide with `com.praesidium.raspd`.
+- **No legacy release is left on the system namespace or the default build root** (retention, above), and the T-12156
+  scratch copy is gone. A pre-c9f35e8f release survives at
+  `~/praesidium/var/asp-release-builds/asp-61486292ffee-20260929T233520Z-570989`. It has no raspd, so use it as `$LEGACY`
+  only while the namespace is direct (2026-11-16: `legacy-release`, one fallback line, `T-13644/06-aspd/drive.txt`).
+  Otherwise build one in a scratch clone at a commit before c9f35e8f. The only pre-sole release left on the system
+  namespace (no `raspd.sole/v1`, raspd present) is `asp-335e40112306-20261109T233606Z-bd1eb2`; copy it before the next
+  activation prunes it.
 - To see retention on a scratch namespace, install more than five releases first: with seven installed, activating
   the legacy one while a sleeper held af8c8306 removed 2336a218 and 356f3344 and kept af8c8306 as `inUse`; the next
   fixed activation then removed af8c8306 (2026-11-09, `T-12763/06-aspd/activate-{legacy,fixed}.json`). Detach any such
@@ -169,25 +215,27 @@ seat variables.
 
 ## Proven when
 
-The system status shows `runningEqualsSelected: true`, `frontDoor.mode: "fronted"`, a `serving.release.sourceCommit`
-that `git log` resolves and equals `version.frontDoor.sourceCommit`, and `runningProcess.executablePath` under
-`<ns>/bin`; hello and catalog answer over the socket, the two refusals carry their codes, and `raspd.log` shows the
-catalog call relayed (`servedBy: bun`). The scratch namespace goes unavailable → activated on a fixed-exec release
-(`executableMode: fixed`, ad-hoc `com.praesidium.aspd` copy, `--release-root`) → serving the catalog →
-`alreadyRunning` → fronted (9 native ops, catalog relayed `servedBy: bun`) → direct again → activated on a pre-c9f35e8f
-release (`legacy-release`, one fallback line, in-place launcher) with `retention` keeping the in-use release and
-removing the expected ones → stopped → `not running`, and both system pids are
-unchanged across all of it; both system plists' ProgramArguments start with `praesidium-launch`; the aspd-service
-unit tests pass (`aspd-service.test.ts` 13 including the stable-exec cases, `aspd-service-retention.test.ts` 2);
-both plists carry `ProcessType` `Interactive`.
+The system status shows `role: fronted`, `runningEqualsSelected: true`, `frontDoor.mode: "fronted"` with 11 native
+ops, a `serving.release.sourceCommit` that `git log` resolves and equals `version.frontDoor.sourceCommit`, and
+`runningProcess.executablePath` under `<ns>/bin`; hello and catalog answer over the socket, the refusals carry their
+codes, and `raspd.log` shows the catalog call `servedBy: native` and the unknown method `servedBy: bun`. The scratch
+namespace, run with an isolated `HOME`, goes unavailable → activated on a fixed-exec release (`role: direct`,
+`executableMode: fixed`, ad-hoc `com.praesidium.aspd` copy, `--release-root`) → sole-enable refused → fronted (11
+native ops, catalog `servedBy: native`) → sole-enable refused on a pre-sole release → sole (no Bun socket,
+`runningProcess` null, unknown method refused natively) → the sole-mode refusals → fronted from sole → direct →
+activated on a pre-c9f35e8f release (`legacy-release`, one fallback line, in-place launcher) → stopped → `not
+running`. Across all of it both system pids and the system kernel record's pid and mtime are unchanged. Both system
+plists' ProgramArguments start with `praesidium-launch` and carry `ProcessType` `Interactive`, and the aspd-service unit
+tests pass (15).
 
-Driven 2026-11-09 against system release asp-93d96239dd19-20261108T171836Z-eb8384 (source 93d96239, fronted,
-supervised, fixed exec; read-only) and a scratch namespace holding seven releases (legacy d0ae39b6 from T-12156 plus six
-fixed system releases), through `bun scripts/aspd-service.ts` under `env -i` (T-12763):
-`var/wrkq-artifacts/T-12763/06-aspd/drive.txt`, `activate-{legacy,fixed}.json`, `live/system-aspd-final.txt`. Not
+Driven 2026-11-16 against system release asp-23285c53d130-20261116T005628Z-7f96a5 (source 23285c53, role fronted,
+supervised, fixed exec; read-only) and a scratch namespace holding the system's sole-capable 23285c53, the pre-sole
+335e4011 and legacy 61486292, through `T-13644/06-aspd/svc.sh` (`env -i`, `HOME=<scratch>/khome`) (T-13644):
+`var/wrkq-artifacts/T-13644/06-aspd/drive.txt`, `activate-{sole-cap,legacy}.json`, `sole-enable.json`. Retention was not
+re-driven at depth this pass (activations returned `retention`; the seven-release drive is `T-12763/06-aspd`). Not
 driven: a live `supervise` (see Gotchas), a codesign failure (activation would leave the namespace stopped on the old
 selection; source `aspd-service/launchd.ts:72-74`), retention's failed-`ps` path (source, `release-retention.ts:47-50`),
-the live probing of `inspectAgentSelection` (f675918e; connect-only to hrc.sock, :18470, :18450), `log-dir`,
+a scratch raspd with the real `HOME` (T-13646; it would rewrite the system record), `log-dir`,
 `build-aspd-pilot-client`, `compileHarnessInvocation` against aspd (it needs a full v2 compile request; feature 8's
 `--compile-transport aspc-rpc` row compiles through a checkout aspc-facade over stdio, not through aspd) and `aspc
 manifest|verify-release` (they need a request file and a corpus).

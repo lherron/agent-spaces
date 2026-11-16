@@ -32,7 +32,7 @@ X=<scratch>/codex-home; H=<scratch>/asp-home; mkdir -p $X
 bun scripts/sync-agent-to-codex-default.ts --to $X --asp-home $H --json            # plan; applied false
 find $X                                                                              # still empty
 bun scripts/sync-agent-to-codex-default.ts --to $X --asp-home $H --install-hooks --apply --json
-ls -A $X; ls $X/skills | wc -l; grep -c trusted_hash $X/config.toml               # .asp-agent-sync, AGENTS.md, config.toml, hooks.json, skills; = planned skills (26); 3
+ls -A $X; ls $X/skills | wc -l; grep -c trusted_hash $X/config.toml               # .asp-agent-sync, AGENTS.md, config.toml, hooks.json, skills; = planned skills (22 on 2026-11-16); 3
 ls $X/.asp-agent-sync                     # desktop-registration-discovery.mjs, pre-tool-use-praesidium-env.mjs, stella.json
 bun scripts/sync-agent-to-codex-default.ts --to $X --asp-home $H --install-hooks --json   # agents unchanged; plan.hooks *Action all unchanged
 M=<plan.materializedHome>; grep -c pkill-guard $M/hooks.json $X/hooks.json        # 1 and 0: T-11380
@@ -58,21 +58,29 @@ bun scripts/sync-agent-to-codex-default.ts --to $X --bogus                      
   scratch `ASP_USAGE_METRICS_VAR_ROOT` (`avs env`) first.
 - The plan materializes the agent under `--asp-home` even without `--apply` (`codex-homes/praesidium_codex-default-
   <agent>/…`); a dry run is not write-free for ASP_HOME, only for the Codex home.
-- The skill count (26 for stella on 2026-10-05, 25 on 2026-10-19, 26 on 2026-10-26, 2026-11-02 and 2026-11-09) follows stella's content in `var/agents`, not
+- The skill count (26 for stella on 2026-10-05, 25 on 2026-10-19, 26 on 2026-10-26, 2026-11-02 and 2026-11-09, 22 on 2026-11-16) follows stella's content in `var/agents`, not
   the code; check "one directory per planned skill", not the number.
 - The two hook scripts and the agent's manifest live in `$X/.asp-agent-sync/`. The discovery hook reads
   `~/praesidium/var/aspd/service/active.json` when it runs and spawns that release's `harness-broker`, so an aspd
     activation changes the broker a desktop conversation joins without re-running the overlay (source,
-  `scripts/codex-default-overlay/constants.ts`; not driven). On 2026-11-09 that is
-  `asp-93d96239dd19-…/harness-broker`, the launcher over `libexec/harness-broker`, not a `bin/` copy (feature 6).
+  `scripts/codex-default-overlay/constants.ts`; `ASPD_ACTIVE_JSON` overrides). On 2026-11-16 that is
+  `asp-23285c53d130-…/harness-broker` (executable; `release.json` releaseId matches), the launcher over
+  `libexec/harness-broker`, not a `bin/` copy (feature 6).
+- **The PreToolUse hook injects `prae` (28cd0cd0).** Besides `asp`, `hrc` and `acp` it prefixes `prae` commands with
+  the thread's `HRC_SESSION_REF`, and adds `HRC_RUNTIME_ID='<id>'` only while `$CODEX_HOME/hrc-desktop/<thread>/join.json`
+  says `phase: "joined"` (none without the file or while `joining`). It reads `CODEX_HOME` and
+  `HRC_DESKTOP_CACHE_DIR` (the per-thread scope cache, `<thread>.json`) when it runs, so point both at the scratch to
+  drive it (2026-11-16, `T-13644/09-codex-overlay/drive.txt`).
+- The managed `AGENTS.md` embeds no static ScopeRef: its Runtime scope section says to run `asp self inspect`.
 - Source edits go under `~/praesidium/var/agents/`; the overlay only renders. Don't edit the Codex home's files.
 
 ## Proven when
 
 The plan run leaves the Codex home empty; the apply run creates `AGENTS.md`, `config.toml` with `hooks = true` and
 three `hooks.state` entries, `hooks.json`, and one directory per planned skill; the replan reports `agents:
-unchanged` and every hooks action `unchanged`; `plan.priming.text` names stella.
+unchanged` and every hooks action `unchanged`; `plan.priming.text` names stella; the PreToolUse hook exports
+`HRC_RUNTIME_ID` for `prae` only once the thread is joined.
 
-Driven 2026-11-09 on scratch `t-12763` against checkout 93d96239 (T-12763):
-`var/wrkq-artifacts/T-12763/09-codex-overlay/drive.txt` (`~/.codex` mtimes unchanged across it). Source only: the
+Driven 2026-11-16 on scratch `t-13644` against checkout e805b5cb (T-13644):
+`var/wrkq-artifacts/T-13644/09-codex-overlay/drive.txt` (`~/.codex` mtimes unchanged across it; T-11380 reproduces). Source only: the
 markerless-collision skip and the marker-hash overwrite guard.

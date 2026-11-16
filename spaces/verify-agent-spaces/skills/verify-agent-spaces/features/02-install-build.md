@@ -30,9 +30,16 @@ plugin-artifacts,build}.ts` and `core/config/src/materializer/`, harness layouts
   refuses `Partial install changes shared space …`.
 - `asp build [target] --harness h --output <dir>`: materializes without launching; plugin dirs live in
   `ASP_HOME/cache/<hash>`, `--output` gets `settings.json`.
-- `asp gc [--dry-run] [--project-only] [--scope-roots]`: prints its root locks (project `asp-lock.json`,
-  `ASP_HOME/global-lock.json`), keeps snapshots and cache entries unless `--project-only`, prunes stale bundle
-  versions, and with `--scope-roots` retires unused `codex-homes/<scope>` roots. An unreadable lock refuses, exit 1.
+- `asp gc [--dry-run] [--project-only] [--scope-roots [--min-age-days N]]`: prints its root locks under `Roots:`
+  (project `asp-lock.json`, `ASP_HOME/global-lock.json`), keeps snapshots and cache entries unless `--project-only`,
+  prunes stale bundle versions (keep 3, 15 min: `store/gc.ts:26-27`), and with `--scope-roots` retires unused
+  `codex-homes/<scope>` roots. An unreadable or unparseable lock refuses `gc refused: <kind> lock <path> exists but
+  cannot be read: …`, exit 1. Per scope root the first rule that keeps it wins (`scope-root-gc.ts:197-229`):
+  `kept (not-scope-root)` (name not `<project>_<agent>` or a runtime key), live reference (a running process's argv/env names a path under it; summary bucket `kept by live
+  reference`), `kept (age)` (newest bundle version younger than `--min-age-days`, default 30), `kept
+  (history)` (non-empty `sessions/`, 480d69ec), else `would retire` / `retired` (rename to `.retiring-*`, then rm). A
+  negative `--min-age-days` refuses `must be a non-negative number`, exit 1. A root the project lock still names but no
+  process uses is retired; the next `install` recreates it (2026-11-16, `T-13644/02-install-build/drive.txt`).
 - `asp init [-t name] [--force]`: a new `asp-targets.toml` with one target composing `space:defaults@dev`.
 - `asp add <ref> --target t [--no-install]` / `asp remove <id> --target t [--no-install]`: edit only the target's
   compose list (comments kept), then install that target; other targets keep their lock entries. `add` validates
@@ -93,15 +100,22 @@ mkdir <root>/init-probe && cd <root>/init-probe && asp init && cat asp-targets.t
   `--output/settings.json` is `{}`. `@dev` spaces build complete. Check plugin content, not that the file exists
   (2026-10-19, `T-11375/02-install-build/drive.txt`; unchanged 2026-11-02).
 - The project id in bundle paths and `ASP_PROJECT` is the project directory's basename (`project` on a scratch).
+- **`install --asp-home` also creates `$HOME/.asp`** (product gap T-13647, same shape as doctor's T-11378): with
+  `ASP_HOME` unset, bundles land in the flag dir but `cache projects repo snapshots sources tmp` appear under
+  `$HOME/.asp` (`install.ts:146` calls `ensureAspHome()` with no argument). Drive with `env -u ASP_HOME HOME=<tmp>`
+  (2026-11-16, `T-13644/02-install-build/drive.txt`).
 
 ## Proven when
 
 `asp install` writes a lock naming both targets and the probe skill appears in each harness layout; the claude
 `settings.json` has `idleCompaction: false`; `build --output` writes `settings.json` (and, until T-11377, empty
-project-space plugins); `gc --dry-run` deletes nothing; `upgrade` updates both targets; the add/remove legs keep
+project-space plugins); `gc --dry-run` deletes nothing and prints both locks under `Roots:`, a broken lock refuses
+it, and `--scope-roots` keeps by age, history and not-a-scope-root and retires the rest; `upgrade` updates both targets; the add/remove legs keep
 the other target locked, leave the file unchanged on failure and keep its comments.
 
-Driven 2026-11-09 on scratch `t-12763` against checkout 93d96239 (T-12763):
-`var/wrkq-artifacts/T-12763/02-install-build/drive.txt` (T-11376, T-11377 and T-12329 reproduce; shared-root
-`FETCH_HEAD` mtime unchanged across the drive). Source only: the `add`/`remove` reinstall fetch (driven with
-`--no-install` to keep the shared root unwritten) and the bundle prune constants (`store/gc.ts:18-19`: keep 3, 15 min).
+Driven 2026-11-16 on scratch `t-13644` against checkout e805b5cb (T-13644):
+`var/wrkq-artifacts/T-13644/02-install-build/drive.txt` (T-11376's fix driven: roots, both refusals, every scope-root
+rule, one real retire on the scratch; T-11377, T-12329 and the new T-13647 reproduce; shared-root `FETCH_HEAD` mtime
+unchanged across the drive). Source only: the `add`/`remove` reinstall fetch (driven with `--no-install` to keep the
+shared root unwritten), the bundle prune constants (`store/gc.ts:26-27`: keep 3, 15 min) and the `live` scope-root
+rule (needs a process naming a scratch scope root).

@@ -25,7 +25,9 @@ operator-cli.ts,invocation-*.ts,drivers/}`, protocol in `contracts/harness-broke
   the seven drivers (a JSON array) without a socket. `run --transport unix` needs `--socket <path>`.
 - The other `cli.ts` verbs are not operator-facing: `run-once` and `validate-start-request` are developer/test debug
   (`validate-start-request --file <json>` refuses an invalid start request, exit 1); `evidence-read` (HRC),
-  `desktop-join` (the Codex overlay's discovery hook), `claude-hook`, `claude-hook-decision`, `codex-hook`,
+  `desktop-join` (the Codex overlay's discovery hook; without `--thread` it exits 1 with its usage reported as
+  `desktop-join crashed {"kind":"uncaughtException",…}`, before dialing HRC, whose live socket it uses by default, so
+  pass a scratch `--hrc-socket` in any drive), `claude-hook`, `claude-hook-decision`, `codex-hook`,
   `codex-tui-wrapper`, `tmux-launch` and `renderer` are harness plumbing that drivers and hooks invoke.
 - The hook verbs (`claude-hook`, `claude-hook-decision`, `codex-hook`) refuse `<verb> requires --socket <path>`, exit 1,
   without `--socket`. A delivery failure (no broker at the socket) exits 0 with empty stdout and `<verb> delivery
@@ -99,7 +101,13 @@ The stub, a spinning bridge for the `ulimit -t 3` check and the commands are in 
   `{`. Its `eventTypes` is the sorted set of types seen, not arrival order (2026-10-05,
   `T-10364/08-harness-broker/drive.txt`, `matrix-summary.py` there).
 - Bare `harness-broker` (or an unknown verb) prints three `Usage:` blocks: `run --transport stdio`, `capture` and
-  `submission`; `drivers` and the plumbing verbs are unlisted. Product gap, T-10365 (open).
+  `submission`; `drivers` and the plumbing verbs are unlisted. Product gap, T-10365 (open; reproduces 2026-11-16).
+  `harness-broker --help` is not a help verb: `Unknown command: --help`, the same usage, exit 1; `drivers --help`
+  ignores the flag and lists the drivers, exit 0.
+- A driver's `broker.hello` entry is its spec-less upper bound (61bbce19): codex-app-server advertises `finalResponse
+  {jsonSchema: true, perTurn: true, strict: true}`, but a TUI spec still refuses a JSON Schema input at
+  `invocation.start` (source, not driven).
+- `HARNESS_BROKER_USE_DIST=1` makes the linked broker run `dist/` instead of the checkout's `src/` (source).
 - `--compile-transport aspc-rpc` spawns a checkout aspc-facade over stdio; it does not go through aspd. The
   `unix-jsonrpc-ndjson` row forces it (the name is the compile transport, not a broker socket); to compile
   `fake-codex` over aspc-rpc pass the flag to that row.
@@ -114,8 +122,8 @@ completed}`, `user.message`; no `usage.updated`, since the fixture reports no to
 exit 1; the hook verbs refuse without `--socket`, exit 0 on a missing broker and at the 30 s deadline; a spinning
 statusline bridge is gone within seconds; the stub HRC logs the expected caller per case.
 
-Driven 2026-11-09 against checkout 93d96239 (T-12763): `var/wrkq-artifacts/T-12763/08-harness-broker/drive.txt`
-(row output, `stub-hrc.js` and `spin.js` beside it).
+Driven 2026-11-16 against checkout e805b5cb (T-13644): `var/wrkq-artifacts/T-13644/08-harness-broker/drive.txt`
+(row output, `stub-hrc.js` and `spin.js` beside it; identical to T-12763's apart from pids and timings).
 Not driven: the five real-harness matrix rows (they need model logins and, for tmux rows, a ghostmux surface), the
 claude-code-hrcpty driver (needs HRC's hrc-pty lease and a real Claude), and the hint's delivery into a PostToolUse
 `additionalContext` (needs a live broker socket).

@@ -17,8 +17,8 @@ muse,pi}`. Repo notes: `AGENTS.md` "Smoke Testing the CLI".
 - `--dry-run` prints the assembled system prompt (for profiled agents) and `── command ──` with the env prefix and
   argv; `--print-command` prints only the command (for agent-harness, a bare `agent-harness tui …` line).
 - Claude argv always has `--chrome`, and `--disallowedTools AskUserQuestion` unless the profile or target sets
-  `[claude] ask_user_question = true` (`claude-adapter.ts:500`; every profile that sets it, mable, rector and vesta, sets
-  `false` on 2026-11-09; a scratch target with `true` drops the deny, `T-12763/03-run-launch/drive.txt`); a yolo profile adds
+  `[claude] ask_user_question = true` (`claude-adapter.ts:500`; every profile that sets it, heather, mable, rector and vesta, sets
+  `false` on 2026-11-16; a scratch target with `true` drops the deny, `T-12763/03-run-launch/drive.txt`); a yolo profile adds
   `--dangerously-skip-permissions --permission-mode bypassPermissions`. Codex argv has `--enable goals` and
   `--dangerously-bypass-hook-trust`; a codex home of a target composing `praesidium-defaults` carries the
   `pkill-guard` space hook (`space-hooks/praesidium-defaults/`, `hooks.json`, `space-hooks.json`).
@@ -85,6 +85,15 @@ asp gui larry --print-command
 - An agent-harness dry-run prints `Dry run - direct agent-harness launch:` and an `agent-harness tui …` line, not
   `── command ──`; grep for the right marker per harness.
 - `asp run` has no `--prompt` flag (the prompt is positional); `asp agent` has both.
+- **Direct launch ignores `[placement] launch`.** `asp run foundry --dry-run` (`launch = "self-brokered"`, 950d6f78)
+  prints a plain `agent-harness tui` launch, and `asp agent stella@… query hi --print-command` (`participant-only`)
+  prints a codex argv, both exit 0. Only the HRC compile and `asp agents inspect` refuse them (feature 4)
+  (2026-11-16, `T-13644/03-run-launch/drive.txt`).
+- **Prompt scope comes from the assigned scope (T-13112).** `asp agent larry@agent-spaces:<task> … --dry-run --json`
+  renders `ScopeRef: agent:larry:project:agent-spaces`, while a bare `asp agent larry …` renders `ScopeRef:
+  agent:larry` with `ASP_PROJECT` still `agent-spaces` from the project root. No literal `{{agentProjectScopeRef}}`
+  survives in either, or in `asp run larry --dry-run`. `spec.env` carries the agent-scope contract's `AGENT_*` keys
+  and no `SCRATCH`, which only HRC writes at birth (946d366c) (2026-11-16).
 - Set `ASP_HOME` to a writable scratch, or temp-dir creation fails with EPERM (`AGENTS.md`).
 
 ## Proven when
@@ -94,6 +103,7 @@ Each harness's dry-run prints `── command ──` with the bundle path under
 argv; the agent-harness refusal and the model refusal print their reasons with exit 1; `asp agent … --print-command`
 puts the prompt after the profile priming; `asp gui --print-command` names the scratch `CODEX_HOME`.
 
-Driven 2026-11-09 on scratch `t-12763` against checkout 93d96239 (T-12763):
-`var/wrkq-artifacts/T-12763/03-run-launch/drive.txt`. Not driven: a real (non-dry-run) launch, which needs a model
+Driven 2026-11-16 on scratch `t-13644` against checkout e805b5cb (T-13644):
+`var/wrkq-artifacts/T-13644/03-run-launch/drive.txt` (output identical to T-12763's apart from the canonical
+lock's hash; T-11379 and T-12329 reproduce). Not driven: a real (non-dry-run) launch, which needs a model
 login and belongs to HRC's own verification.
