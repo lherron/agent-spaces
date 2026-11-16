@@ -79,6 +79,11 @@ class AspdProfile(ServedProductProfile):
                 "--kernel-socket", socket_path, "--kernel-root", os.path.join(work, "var"),
                 "--kernel-instance", "conformance", "--log", os.path.join(work, "raspd-requests.log")]
 
+    def host_flags(self, argv):
+        """raspd always serves protocol 3 and names its registry root
+        --kernel-root in serve_argv, so the suite appends nothing."""
+        return []
+
     def unavailable(self, name):
         if name in ("query", "replay"):
             return self.NO_SUITE_ROWS
