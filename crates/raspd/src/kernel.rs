@@ -46,7 +46,7 @@ pub fn start(
         Duration::from_millis(100),
         Some(Arc::new(move |line| logger.raw(line))),
     );
-    let record = Arc::new(Mutex::new(Record::new(
+    let mut record = Record::new(
         "aspd",
         args.instance.clone(),
         paths.socket.clone(),
@@ -57,14 +57,9 @@ pub fn start(
             argv: std::env::args().collect(),
             cwd: std::env::current_dir().map_err(|e| e.to_string())?,
         },
-    )));
-    record
-        .lock()
-        .unwrap()
-        .write(&paths.record)
-        .map_err(|e| e.to_string())?;
-    let fail = |error: String| {
-        let mut record = record.lock().unwrap();
+    );
+    record.write(&paths.record).map_err(|e| e.to_string())?;
+    let fail = |record: &mut Record, error: String| {
         *record = record.clone().failed(
             &Failure::new(
                 "kernel_start_failed",
@@ -108,9 +103,18 @@ pub fn start(
         },
         Health::default(),
     )
-    .map_err(|e| fail(e.to_string()))?;
+    .map_err(|e| fail(&mut record, e.to_string()))?;
     kernel.log_dirs(log.clone());
-    let client = kernel.client().expect("single owner");
+    let client = match kernel.client() {
+        Some(client) => client,
+        None => {
+            let _ = kernel.shutdown();
+            return Err(fail(
+                &mut record,
+                "kernel has no single-owner client".into(),
+            ));
+        }
+    };
     if let Err(error) = parts::send(
         &client,
         "ingest.attach",
@@ -118,37 +122,45 @@ pub fn start(
         "binding": BINDING, "operation": OPERATION, "config": {}, "interval_ms": 60000}),
     ) {
         let _ = kernel.shutdown();
-        return Err(fail(format!("ingest.attach: {error:?}")));
+        return Err(fail(&mut record, format!("ingest.attach: {error:?}")));
     }
     let wire = match kernel.bind(&paths.socket) {
         Ok(wire) => wire,
         Err(error) => {
             let _ = kernel.shutdown();
-            return Err(fail(error.to_string()));
+            return Err(fail(&mut record, error.to_string()));
         }
     };
     {
-        let mut record = record.lock().unwrap();
-        *record = record.clone().serving(client.host_incarnation());
+        record = record.serving(client.host_incarnation());
         record.graphs = kernel.graphs();
         record.graph_locations = kernel.graph_locations();
         if let Err(error) = record.write(&paths.record) {
-            drop(record);
             wire.stop();
             let _ = wire.join();
             let _ = kernel.shutdown();
-            return Err(fail(error.to_string()));
+            return Err(fail(&mut record, error.to_string()));
         }
         kernel.set_status(json!({"record": record.to_json()}));
     }
+    let waker = wake_rx
+        .recv()
+        .map_err(|e| fail(&mut record, e.to_string()))?;
+    let record = Arc::new(Mutex::new(record));
     let held = record.clone();
+    let dirs_log = log.clone();
     let record_path = paths.record.clone();
     kernel.on_dirs(move |dirs| {
-        let mut record = held.lock().unwrap();
+        let mut record = match held.lock() {
+            Ok(record) => record,
+            Err(error) => {
+                dirs_log.error("kernel.record_failed", json!({"error": error.to_string()}));
+                return false;
+            }
+        };
         record.dirs = dirs;
         record.write(&record_path).is_ok()
     });
-    let waker = wake_rx.recv().map_err(|e| fail(e.to_string()))?;
     let ended = wire.ended();
     let (stop, stopping) = bounded(1);
     // This is the wake thread as well as the lifecycle supervisor. It
@@ -173,22 +185,33 @@ pub fn start(
                 wire.stop();
                 let wire_result = wire.join().map_err(|e| e.to_string());
                 let owner_result = kernel.shutdown().map_err(|e| e.to_string());
-                let result = wire_result.and(owner_result).and_then(|()| {
+                let mut result = wire_result.and(owner_result).and_then(|()| {
                     std::fs::remove_file(&paths.record)
                         .map_err(|e| format!("remove registry record: {e}"))
                 });
                 if let Err(error) = &result {
-                    let mut record = record.lock().unwrap();
-                    *record = record.clone().failed(
-                        &Failure::new(
-                            "kernel_teardown_failed",
-                            error.clone(),
-                            "read the kernel log before starting aspd again",
-                        ),
-                        paths.log.clone(),
+                    match record.lock() {
+                        Ok(mut record) => {
+                            *record = record.clone().failed(
+                                &Failure::new(
+                                    "kernel_teardown_failed",
+                                    error.clone(),
+                                    "read the kernel log before starting aspd again",
+                                ),
+                                paths.log.clone(),
+                            );
+                            let _ = record.write(&paths.record);
+                        }
+                        Err(poison) => {
+                            result = Err(format!(
+                                "{error}; kernel registry record poisoned: {poison}"
+                            ));
+                        }
+                    }
+                    log.error(
+                        "kernel.teardown_failed",
+                        json!({"error": result.as_ref().err()}),
                     );
-                    let _ = record.write(&paths.record);
-                    log.error("kernel.teardown_failed", json!({"error": error}));
                 } else {
                     log.info("kernel.stopped", json!({}));
                 }
