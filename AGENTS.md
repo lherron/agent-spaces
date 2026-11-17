@@ -101,7 +101,7 @@ Ruled by Lance 2026-11-17 (T-13668): **callers never choose a door from seat sta
 |---|---|---|
 | **Idle** (ready, no turn) | Starts a turn whose input is the steer. Codex decides at actuation (`resolvesSteerAtActuation`) and starts an own turn when Codex has none. `arris-resident` (`steerNeverStartsTurn`) forwards the steer, and its host starts the turn. | Live |
 | **Busy** (turn running) | Injects into the running turn: Claude by paste, Codex by `turn/steer`. | Live |
-| **Handed over, turn not started** | Waits for that turn, then injects. | T-13687 |
+| **Handed over, turn not started** | Waits for that turn, then injects. Codex signals it per attempt; for the Claude paste drivers the broker holds the steer while the own-turn slot is pending and no turn runs, so it never merges into the queued prompt. `arris-resident` injects at once (host-owned window). | T-13687, T-13689 |
 | **Invocation starting** | Held until the invocation is ready, then idle or busy as above. | T-13689 |
 | **Guarded turn** | Never steered into. Waits for the turn's terminal, then starts its own turn. | T-13689 |
 | **Open permission request or question** (a `permission.requested` without its resolution, or an open `AskUserQuestion`/`request_user_input` tool call) | Held until the request resolves, because injected text must never answer a prompt. | T-13689 |

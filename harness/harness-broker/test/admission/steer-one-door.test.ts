@@ -127,6 +127,62 @@ describe('T-13689 steer one door: every live seat state', () => {
     expect(terminalsFor(run.events, steered.submissionId)).toEqual(['submission.absorbed'])
   })
 
+  test('paste driver pending window: the steer waits for the handed-over turn instead of merging into it', async () => {
+    // Claude's shape (harness-evidence brackets, a pasting applySteerNow that
+    // never asks for an own turn). Live, a steer pasted before the queued
+    // prompt's turn started merged into that prompt and got no terminal (T-13689
+    // smoke, claude-code-hrcpty.run1.events.ndjson seq 42-48).
+    const run = await setup('inv_one_door_paste_pending', {
+      bracketMintingMode: 'harness-evidence',
+      suppressTurnStarted: true,
+    })
+    const handed = await run.broker.enqueue({
+      invocationId: run.invocationId,
+      origin,
+      body: 'queued prompt',
+    })
+    await flush()
+    const steered = await run.broker.steer({
+      invocationId: run.invocationId,
+      origin,
+      body: 'its own message',
+    })
+    await flush()
+
+    // Nothing pasted while the queued body may still sit in the composer.
+    expect(steered.admission).toBe('admitted')
+    expect(run.controller.steeredInputs).toHaveLength(0)
+    expect(steeredIds(run.controller.inputs)).toEqual([handed.submissionId])
+
+    run.controller.observeActiveTurnStart()
+    await flush()
+
+    expect(steeredIds(run.controller.steeredInputs)).toEqual([steered.submissionId])
+    expect(inputRejectedFor(run.events, steered.submissionId)).toHaveLength(0)
+    absorb(run, steered.submissionId)
+    expect(terminalsFor(run.events, steered.submissionId)).toEqual(['submission.absorbed'])
+    expect(terminalsFor(run.events, handed.submissionId)).toEqual(['submission.executed'])
+  })
+
+  test("two idle steers on a paste driver: the second waits for the first one's turn", async () => {
+    const run = await setup('inv_one_door_paste_two_idle', {
+      bracketMintingMode: 'harness-evidence',
+      suppressTurnStarted: true,
+    })
+    const first = await run.broker.steer({ invocationId: run.invocationId, origin, body: 'one' })
+    const second = await run.broker.steer({ invocationId: run.invocationId, origin, body: 'two' })
+    await flush()
+    expect(steeredIds(run.controller.inputs)).toEqual([first.submissionId])
+    expect(run.controller.steeredInputs).toHaveLength(0)
+
+    run.controller.observeActiveTurnStart()
+    await flush()
+    expect(steeredIds(run.controller.steeredInputs)).toEqual([second.submissionId])
+    absorb(run, second.submissionId)
+    expect(terminalsFor(run.events, first.submissionId)).toEqual(['submission.executed'])
+    expect(terminalsFor(run.events, second.submissionId)).toEqual(['submission.absorbed'])
+  })
+
   test.each([
     ['exclusive', ['steer', 'queue', 'exclusive']],
     ['queue', ['steer', 'queue']],

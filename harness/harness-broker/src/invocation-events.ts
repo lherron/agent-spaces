@@ -363,6 +363,19 @@ export function createInvocationEvents(deps: InvocationEventsDeps) {
     for (const watcher of [...(inv.steerWatchers ?? [])]) watcher(event)
   }
 
+  /** Open prompts hold steers (T-13689): injected text would answer them. */
+  function trackOpenPrompts(inv: Invocation, event: InvocationEventEnvelope): void {
+    if (event.type === 'permission.requested') {
+      inv.openPermissionRequests ??= new Set()
+      inv.openPermissionRequests.add(event.payload.permissionRequestId)
+    } else if (event.type === 'permission.resolved') {
+      inv.openPermissionRequests?.delete(event.payload.permissionRequestId)
+    } else if (TURN_TERMINAL_TYPES.has(event.type)) {
+      // A prompt never outlives its turn, even when no resolution was reported.
+      inv.openPermissionRequests?.clear()
+    }
+  }
+
   function emitEvent<K extends InvocationEventType>(
     inv: Invocation,
     descriptor: InvocationEventFor<K>,
@@ -540,16 +553,7 @@ export function createInvocationEvents(deps: InvocationEventsDeps) {
     } else if (event.type === 'tool.call.completed' || event.type === 'tool.call.failed') {
       inv.startedToolCalls.delete(event.payload.toolCallId)
     }
-    // Open prompts hold steers (T-13689): injected text would answer them.
-    if (event.type === 'permission.requested') {
-      inv.openPermissionRequests ??= new Set()
-      inv.openPermissionRequests.add(event.payload.permissionRequestId)
-    } else if (event.type === 'permission.resolved') {
-      inv.openPermissionRequests?.delete(event.payload.permissionRequestId)
-    } else if (TURN_TERMINAL_TYPES.has(event.type)) {
-      // A prompt never outlives its turn, even when no resolution was reported.
-      inv.openPermissionRequests?.clear()
-    }
+    trackOpenPrompts(inv, event)
     // Deliver BEFORE projecting state: applyEventState can synchronously emit
     // follow-on events (turn terminal → drain dequeues input.accepted /
     // user.message; invocation.stopping → queue eviction input.rejected). If

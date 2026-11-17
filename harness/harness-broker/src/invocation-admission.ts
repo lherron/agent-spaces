@@ -1019,7 +1019,24 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
   function steerGateOpen(inv: Invocation): boolean {
     if (inv.state === 'starting' || inv.startSettled !== true) return false
     if (promptOpen(inv)) return false
+    if (pasteWouldMergeIntoPendingTurn(inv)) return false
     return !(inv.state === 'turn_active' && inv.currentTurnPolicy === 'guarded')
+  }
+
+  /**
+   * A paste driver (harness-evidence brackets: both Claude drivers) with another
+   * submission's own-turn delivery handed over and no harness turn running yet:
+   * that body may still sit in the composer, so a pasted steer would merge into
+   * it and lose its own identity. The steer waits for that turn to start (or the
+   * slot to change), then injects (T-13689, mable ruling EN-57033). Hosts that
+   * own the window themselves, such as arris-resident, keep injecting at once.
+   */
+  function pasteWouldMergeIntoPendingTurn(inv: Invocation): boolean {
+    return (
+      inv.driver.bracketMintingMode === 'harness-evidence' &&
+      inv.state === 'ready' &&
+      inv.pendingOwnTurnSubmissionId !== undefined
+    )
   }
 
   /** Register a change-driven watcher until `settle` returns a verdict. */
