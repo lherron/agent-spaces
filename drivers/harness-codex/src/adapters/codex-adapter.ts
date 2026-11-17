@@ -359,6 +359,8 @@ export class CodexAdapter implements HarnessAdapter {
 
   readonly models: HarnessModelInfo[] = [
     { id: DEFAULT_CODEX_CLI_MODEL, name: 'GPT-5.6-Terra', default: true, identityKind: 'full' },
+    { id: 'gpt-6.2-sol', name: 'GPT-6.2-Sol', identityKind: 'full' },
+    { id: 'gpt-6.2-astra', name: 'GPT-6.2-Astra', identityKind: 'full' },
     { id: 'gpt-6.1-sol', name: 'GPT-6.1-Sol', identityKind: 'full' },
     { id: 'gpt-6-astra', name: 'GPT-6-Astra', identityKind: 'full' },
     { id: 'gpt-6-luna', name: 'GPT-6-Luna', identityKind: 'full' },

@@ -22,8 +22,10 @@ use std::sync::Mutex;
 /// `DEFAULT_CODEX_ENABLED_FEATURES` (core/config/src/core/codex-launch.ts).
 pub const DEFAULT_FEATURES: [&str; 1] = ["goals"];
 /// The CodexAdapter's `models` ids: a runtime plan's model must be one.
-pub const ADAPTER_MODELS: [&str; 13] = [
+pub const ADAPTER_MODELS: [&str; 15] = [
     "gpt-5.6-terra",
+    "gpt-6.2-sol",
+    "gpt-6.2-astra",
     "gpt-6.1-sol",
     "gpt-6-astra",
     "gpt-6-luna",

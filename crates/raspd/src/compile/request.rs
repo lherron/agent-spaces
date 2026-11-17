@@ -682,8 +682,10 @@ pub enum Harness {
     Codex,
 }
 
-const CODEX_MODELS: [&str; 7] = [
+const CODEX_MODELS: [&str; 9] = [
     "gpt-5.6-terra",
+    "gpt-6.2-sol",
+    "gpt-6.2-astra",
     "gpt-6.1-sol",
     "gpt-6-astra",
     "gpt-6-luna",
