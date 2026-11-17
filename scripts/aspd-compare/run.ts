@@ -440,7 +440,13 @@ function parseSubject(name: 'a' | 'b', aspd: string): Subject {
 async function main(): Promise<number> {
   setMasking(!process.argv.includes('--raw'))
   const out = resolve(
-    arg('--out') ?? join(repo, '..', 'var', 'wrkq-artifacts', 'T-11833', 'compare')
+    arg('--out') ??
+      // Raw replies and trees run to gigabytes: scratch, never a task's artifact dir.
+      join(
+        process.env['SCRATCH'] ??
+          join(repo, '..', 'var', 'scratch', 'agent-spaces', 'aspd-compare'),
+        'compare'
+      )
   )
   rmSync(out, { recursive: true, force: true })
   mkdirSync(out, { recursive: true })
