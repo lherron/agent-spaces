@@ -6,8 +6,9 @@ scope: per-seat harness-broker admission disposition control and observation con
 predicate: >
   One harness-broker owns one harness process and exposes per-seat mechanism;
   HRC permanently owns cross-seat scheduling and caller policy. Every mediated
-  submission enters exactly one admission class: steer enters the harness-local
-  queue seeking absorption and may instead execute after drain; queue remains
+  submission enters exactly one requested admission class: steer follows
+  agent-spaces.broker-steer-one-door, starting an idle turn or seeking absorption
+  into a live turn with broker-owned holds and queue-only routing; queue remains
   broker-held FIFO until idle and then originates its own turn; exclusive
   originates a turn only when immediately idle or rejects busy; preempt is
   authority-gated, interrupts the live turn and every drain-spawned successor
@@ -28,19 +29,24 @@ predicate: >
   submission.lost then non-retryable invocation.failed boundary before another
   same-seat input can drain. Obligation-bearing
   submissions use only queue, exclusive, or preempt and originate a dedicated
-  turn; steer carries no obligation, wait, or own response and resolves only
-  through absorbed or executed disposition. Admission composes driver
-  capability, active-turn policy, and caller authority without silent class
-  upgrades. The broker-held queue is queryable, cancellable, TTL-aware, and
-  reorderable under authority; admission queue disposition interrupt and
+  turn; steer carries no obligation, caller wait, or own response. Its routing
+  and terminal requirements are governed by agent-spaces.broker-steer-one-door.
+  Admission composes driver capability, active-turn policy, and caller authority
+  without silent class upgrades. For steer to a live seat, capability and guarded
+  policy select broker-owned routing or holds rather than refusal; caller
+  authority may still refuse. Possibly-written recovery remains governed by
+  agent-spaces.harness-broker-turn-evidence. The broker-held queue is queryable,
+  cancellable, TTL-aware, and reorderable under authority; admission queue disposition interrupt and
   capture decisions share the broker replay ledger and snapshot surface. TUI
   mechanics never use navigation-key choreography, and unsupported capabilities
   remain unset. Turn evidence and bracket-minting declarations remain governed by
   agent-spaces.harness-broker-turn-evidence and its bounded Pi accepted risk.
 authority:
   repo: agent-spaces
-  surface: wrkq T-07843 rev 7 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03 and wrkq T-08097 rev 13 on 2026-09-05
+  surface: wrkq T-07843 rev 7 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03 and wrkq T-08097 rev 13 on 2026-09-05; steer routing and hold boundary amended by Daedalus approval of T-13689 revision 2 on Lance's 2026-11-17 ruling
 source:
+  - wrkq:T-13689
+  - architecture/records/invariants/agent-spaces.broker-steer-one-door.yaml
   - wrkq:T-07843
   - wrkq:T-07962
   - wrkq:T-08097
@@ -52,7 +58,8 @@ source:
   - harness/harness-broker/src/invocation-manager.ts
 required_tests:
   - every seat-state turn-policy admission-class and authority cell produces the specified admit hold reject or interrupt outcome and one truthful disposition
-  - obligation-bearing submissions cannot use steer and every steer surface excludes wait obligation and own-response options
+  - obligation-bearing submissions cannot use steer and every steer surface excludes caller wait obligation and own-response options
+  - steer live-state routing holds queue-only admission and terminal outcomes preserve agent-spaces.broker-steer-one-door while possibly-written recovery preserves agent-spaces.harness-broker-turn-evidence
   - queue list jump cancel TTL FIFO and snapshot replay preserve submission identity and authority
   - preempt with a surviving harness-local queue drives through drain-spawned turns to true quiescence with honest terminals and bounded slippage
   - every driver advertises supported admission classes and bracket-minting mode while new delivery-asserted drivers fail conformance

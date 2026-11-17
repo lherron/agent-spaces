@@ -1,0 +1,58 @@
+id: agent-spaces.broker-steer-one-door
+kind: invariant
+status: active
+owner_project: agent-spaces
+scope: harness-broker steer admission across every live seat state
+predicate: >
+  A caller chooses steer by intent and never by seat state; HRC, mail delivery
+  and other clients keep no door choice, fallback or hold derived from seat
+  state. A harness-broker accepts submission.steer for every live invocation of
+  a seat driver and makes it land: an idle seat starts a turn whose input is the
+  steer; a busy seat injects it into the running turn; while an own-turn
+  submission is handed over and its turn has not started, the steer waits for
+  that turn and injects; while the invocation is starting, the steer is held
+  until it is ready; a guarded turn is never steered into, and the steer waits
+  for its terminal and then starts a turn; while a permission request is open,
+  the steer is held and injects after the request resolves, so mediated text
+  never answers a prompt; a pane refusal before paste, which writes nothing, is
+  held and retried until the input is ready; a driver without the steer class
+  admits it through its own queue. A host that owns idle turn creation
+  (steerNeverStartsTurn) receives the steer and starts the turn itself. The
+  broker refuses a steer only when the invocation is stopping, exited, failed
+  or disposed (not_written); when fresh context is requested, which is a new
+  session and belongs to HRC lifecycle; when the host's authorization hook
+  denies it; or when the harness write itself fails, with not_written evidence
+  before any write and possibly_written after. Possibly written recovery is
+  unchanged and stays governed by agent-spaces.harness-broker-turn-evidence:
+  Codex's same-submission own-turn fallback after an ambiguous failed steer
+  RPC still runs, and a Claude pane failure after submit is not re-pasted. Every
+  steer reaches exactly one submission terminal, and any other steer refusal is
+  a broker defect.
+authority:
+  repo: agent-spaces
+  surface: Lance rulings 2026-11-17 in wrkq T-13668 ("Callers should not have to choose steer or queue based on a seat's status. If they want to steer, they send steer and the broker makes it work regardless of seat busy/idle"; "brokers should never refuse a steer beyond the cases you mentioned")
+source:
+  - wrkq:T-13668
+  - wrkq:T-13687
+  - wrkq:T-13689
+  - architecture/records/invariants/agent-spaces.harness-broker-admission.yaml
+  - harness/harness-broker/src/invocation-submissions.ts
+  - harness/harness-broker/src/invocation-admission.ts
+  - harness/harness-broker/src/invocation-permissions.ts
+  - harness/harness-broker/src/runtime/tmux.ts
+  - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
+required_tests:
+  - a steer in each live seat state (idle, busy, handed-over pending, invocation starting, guarded turn, open permission request, pane not ready before paste, queue-only driver) lands as specified with exactly one submission terminal
+  - a steer to a stopping, exited, failed or disposed invocation is refused not_written
+  - an after-submit pane failure is reported possibly_written and not re-pasted, and the Codex ambiguous-RPC steer fallback still starts its same-submission own turn
+  - no steer path refuses busy, guarded or capability for a live seat driver
+last_verified:
+  date: 2026-11-17
+  evidence: ruling recorded; idle start, busy inject and Codex actuation-time resolution are live; the pending-window wait lands with T-13687 and the starting, guarded, permission, pane and queue-only holds with T-13689
+reopen_when:
+  - a new steer refusal reason is proposed for a live invocation
+  - a caller needs seat state to choose between steer and queue
+  - a hold can inject text into an open prompt
+  - possibly written recovery for steer changes outside agent-spaces.harness-broker-turn-evidence
+supersedes: []
+superseded_by: null
