@@ -93,22 +93,31 @@ changed field/operation; for human-only coverage, cite the explicit ruling and s
 
 ## Broker Injection Doors
 
-Ruled by Lance 2026-09-16 (H-00440, T-08533 hrc-runtime, T-08534 arris): **steer = send now, enqueue = send after.** A steer joins the running turn; if no turn is running it STARTS one. Never spec "steer has no turn of its own" again. A client that enqueues its first message is wrong, not the host.
+Ruled by Lance 2026-09-16 (H-00440): **steer = send now, enqueue = send after.** A steer joins the running turn; if no turn is running it STARTS one. Never spec "steer has no turn of its own" again. A client that enqueues its first message is wrong, not the host.
 
-| Broker state | Steer | Enqueue |
+Ruled by Lance 2026-11-17 (T-13668): **callers never choose a door from seat state.** "If they want to steer, they send steer and the broker makes it work regardless of seat busy/idle." HRC and mail delivery keep no seat-state door choice, steer-to-enqueue fallback, or retry hold for steer. Making a steer land is the broker's job, and "brokers should never refuse a steer beyond" the four cases below. Architecture record: `agent-spaces.broker-steer-one-door`.
+
+| Seat state | What the broker does with a steer | Live? |
 |---|---|---|
-| **Idle** (warm, no turn running) | **Starts a turn.** Steer text is the turn's input; response carries the new turn identity. Live in the broker for every driver (`steer()` applies the input as an own turn when the invocation is ready) except `arris-resident`, which sets `steerNeverStartsTurn` and forwards it to the host, and the host starts the turn itself (arris 785ac2b, T-08534: join / hold / start). The driver with no `steer` admission class (codex-desktop) is downgraded at the HRC steer door to an enqueue (T-08536, hrc 0e829518): the response carries effectiveDoor/requestedDoor/downgradeReason, the ledger gets submission.door_downgraded, the CLI prints a stderr notice; informational, never a warn. Direct broker clients still get the capability refusal. | **Starts a turn.** Own turn, own run, receipt, waitable. Live. |
-| **Busy** (turn running) | **Joins the running turn.** Injected immediately, best effort, no turn of its own; response carries the running turn's identity. Refused only for exclusive, guarded (every turn started through HRC `POST /v1/turns` is guarded), or capability (T-08527 removed busy/unattributed refusals). Live. | **Queues a distinct turn behind the running one.** Never dropped, waitable on its own final. Live. |
-| **Busy, admitted not started** | **Held and written into that turn** once it starts (Arris host, T-08529). | Queues behind it. Live. |
-| **Cold** (not yet born) | **Rides the birth turn** with the priming (T-08531). | **Rides the birth turn** with the priming (T-08531). |
+| **Idle** (ready, no turn) | Starts a turn whose input is the steer. Codex decides at actuation (`resolvesSteerAtActuation`) and starts an own turn when Codex has none. `arris-resident` (`steerNeverStartsTurn`) forwards the steer, and its host starts the turn. | Live |
+| **Busy** (turn running) | Injects into the running turn: Claude by paste, Codex by `turn/steer`. | Live |
+| **Handed over, turn not started** | Waits for that turn, then injects. | T-13687 |
+| **Invocation starting** | Held until the invocation is ready, then idle or busy as above. | T-13689 |
+| **Guarded turn** | Never steered into. Waits for the turn's terminal, then starts its own turn. | T-13689 |
+| **Open permission request** | Held until the request resolves, because injected text must never answer a prompt. | T-13689 |
+| **Pane not ready before paste** (Claude `pane_not_quiescent`, `before_paste`) | Nothing was written, so the broker holds and retries until the input box is ready. | T-13689 |
+| **Driver without the steer class** (codex-desktop) | Admitted through that driver's own queue. Until T-13689 ships, HRC downgrades the steer to enqueue at its door (`downgradeReason: steer_not_supported`). | T-13689 |
+| **Cold** (not yet born) | HRC births the runtime and the steer rides the birth turn with the priming. | Live |
 
-Client defaults after the ruling:
+**The only steer refusals.** Anything else is a broker defect:
+1. The invocation is stopping, exited, failed or disposed. The refusal is `not_written`, and HRC lifecycle carries the message to the next generation.
+2. Fresh context is requested. That is a new session, which belongs to HRC lifecycle.
+3. The host's authorization hook denies it. The hook defaults to allow, and mail fails such an envelope plainly.
+4. The harness write itself fails. The evidence is `not_written` before any write, and `possibly_written` after. Recovery after a possible write is unchanged (`agent-spaces.harness-broker-turn-evidence`). After an ambiguous failed `turn/steer` RPC, Codex still re-sends the same submission as an own turn, accepting a possible duplicate rather than a dropped steer. A Claude pane failure after submit is not re-pasted.
 
-- **Mail kicker**: steer on idle and busy steer-capable seats. Enqueue only for seats that are not steer-capable, seats that permanently refused steer, and as the fallback when a busy seat refuses a steer for exclusive/guarded/capability. Preempt for authorized holds unchanged. (T-08533)
-- **hrc turn**: steer by default, `--wait` allowed with it; an explicit flag selects enqueue. (T-08533)
-- **ACP and agent-loop**: dispatch through HRC `POST /v1/turns` (a guarded turn; not `/v1/submissions/invoke`), neither door. Untouched.
+Every steer reaches exactly one submission terminal (executed, absorbed, rejected, withdrawn, cancelled or lost). A Codex TUI delivery returns once Codex acknowledges it, and attribution settles the fate later. Attribution never holds the queue (T-13687).
 
-Enqueue-then-steer ordering (T-08532) was cancelled as a non-scenario: a steer the broker delivers before its own queue starts the turn and the queue follows behind, which is the ruling's semantics.
+Explicit doors stay for callers who want their semantics on purpose: **enqueue** (an own turn after the current one, waitable), **invoke** (exclusive; on a seat without the exclusive class HRC admits it through queue), and **preempt** (authority-gated, for holds). `hrc turn` steers by default and enqueues only with an explicit flag. ACP and agent-loop dispatch through HRC `POST /v1/turns`, which starts a guarded turn.
 
 ## aspd operations
 
