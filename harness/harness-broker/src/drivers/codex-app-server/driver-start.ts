@@ -133,7 +133,6 @@ export function createCodexDriverStart(
     s.completedTurnVersion = 0
     s.attributionByTurn.clear()
     s.firstItemSeen.clear()
-    s.attributionWaiters.clear()
     // A fresh app-server process is a fresh JSON-RPC stream, so its cursors
     // belong to a new epoch — never to the one a previous connection wrote.
     rotateCaptureEpoch(driverCtx)

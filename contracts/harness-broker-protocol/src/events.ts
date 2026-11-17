@@ -315,10 +315,23 @@ export interface SubmissionCancelledPayload {
     | undefined
 }
 
-/** Delivery occurred, but available evidence cannot prove its execution outcome. */
+/**
+ * Delivery occurred, but available evidence cannot prove its execution outcome.
+ * `turn-correlation-lost`: a contested turn ended without correlating it.
+ * `left-queue-unattributed`: it left the harness's own queue with no turn
+ * claiming it (codex-tui, T-13687). `teardown`: the invocation ended before
+ * any evidence settled it. `broker-gone`: authored by HRC, never the broker,
+ * when a broker process dies without settling the submission.
+ */
+export type SubmissionLostReason =
+  | 'turn-correlation-lost'
+  | 'left-queue-unattributed'
+  | 'teardown'
+  | 'broker-gone'
+
 export interface SubmissionLostPayload {
   submissionId: string
-  reason: 'turn-correlation-lost'
+  reason: SubmissionLostReason
 }
 
 export interface AdmissionRequestedPayload {

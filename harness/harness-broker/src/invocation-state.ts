@@ -7,7 +7,7 @@ import type {
   UsageUpdatedPayload,
 } from 'spaces-harness-broker-protocol'
 import type { InvocationAdmission } from './invocation-admission'
-import { REASON_INVOCATION_STOPPING, REASON_INVOCATION_TERMINATED } from './invocation-constants'
+import { REASON_INVOCATION_STOPPING } from './invocation-constants'
 import type { EmitFn, Invocation } from './invocation-model'
 
 export interface InvocationStateProjectionDeps {
@@ -242,7 +242,8 @@ export function createStateProjection(deps: InvocationStateProjectionDeps) {
         if (payload && 'signal' in payload) {
           inv.signal = payload.signal as string | null | undefined
         }
-        evictQueue(inv, REASON_INVOCATION_TERMINATED)
+        // Queue eviction and teardown settlement ran before this envelope was
+        // sequenced (invocation-events.ts), so their terminals precede it.
         return
       }
       case 'invocation.failed':
@@ -257,7 +258,8 @@ export function createStateProjection(deps: InvocationStateProjectionDeps) {
         inv.currentInputId = undefined
         inv.unattributedTurnId = undefined
         inv.currentTurnStartedAt = undefined
-        evictQueue(inv, REASON_INVOCATION_TERMINATED)
+        // Queue eviction and teardown settlement ran before this envelope was
+        // sequenced (invocation-events.ts), so their terminals precede it.
         return
       case 'invocation.disposed':
         inv.state = 'disposed'

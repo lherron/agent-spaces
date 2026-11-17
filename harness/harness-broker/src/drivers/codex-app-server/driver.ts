@@ -69,6 +69,13 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
     },
     evidenceAuthority: CODEX_APP_SERVER_AUTHORITY,
     nativeSourceKind: 'provider-jsonrpc',
+    /**
+     * codex-tui delivery returns at Codex's queue acknowledgement (T-13687), so
+     * own attribution is the first proof the queued submission executed.
+     */
+    get confirmsSubmissionExecutionOnOwnAttribution() {
+      return s.codexTui
+    },
     get preemptMode() {
       return s.codexTui ? null : ('atomic' as const)
     },
@@ -178,10 +185,6 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       s.queuedSubmissions.clear()
       s.attributionByTurn.clear()
       s.firstItemSeen.clear()
-      for (const waiter of s.attributionWaiters.values()) {
-        waiter.reject(new Error('Codex TUI invocation disposed'))
-      }
-      s.attributionWaiters.clear()
       s.threadId = undefined
       s.currentInputId = undefined
       s.currentTurnId = undefined

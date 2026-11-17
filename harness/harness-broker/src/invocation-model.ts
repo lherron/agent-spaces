@@ -221,6 +221,12 @@ export interface Invocation {
   drainPromise?: Promise<void> | undefined
   /** Short write lock for terminal-immediate busy inputs. This is not a turn queue. */
   steerPromise?: Promise<void> | undefined
+  /**
+   * Steers waiting out another submission's pending own-turn window (T-13687
+   * C). Each is told about every event after its state projection and settles
+   * itself on a turn start, a slot change, or the invocation closing.
+   */
+  pendingWindowWatchers?: Set<(event: InvocationEventEnvelope) => void> | undefined
   /** Monotonic counter for broker-assigned inputIds. */
   inputCounter: number
   /**

@@ -10,6 +10,8 @@ import type {
   MessageId,
   PermissionRequestId,
   SubmissionCancelledPayload,
+  SubmissionLostPayload,
+  SubmissionLostReason,
   SubmissionTurnDispositionPayload,
   ToolCallId,
   TurnAttributedPayload,
@@ -260,6 +262,28 @@ describe('validateEventEnvelope', () => {
       const payload: UsageUpdatedPayload = { usage: { inputTokens: 1 }, model }
       expectValidatesTo(envelope('usage.updated', payload), envelope('usage.updated', payload))
     }
+  })
+
+  test('T-13687: submission.lost accepts exactly its four reasons', () => {
+    const reasons: SubmissionLostReason[] = [
+      'turn-correlation-lost',
+      'left-queue-unattributed',
+      'teardown',
+      // Authored by HRC when a broker dies unsettled, never by the broker.
+      'broker-gone',
+    ]
+    for (const reason of reasons) {
+      const payload: SubmissionLostPayload = { submissionId: 'submission_1', reason }
+      expectValidatesTo(envelope('submission.lost', payload), envelope('submission.lost', payload))
+    }
+    expectInvalidEventEnvelope(
+      envelope('submission.lost', { submissionId: 'submission_1', reason: 'gone' }),
+      { path: 'payload.reason', code: 'invalid_literal' }
+    )
+    expectInvalidEventEnvelope(envelope('submission.lost', { submissionId: 'submission_1' }), {
+      path: 'payload.reason',
+      code: 'required',
+    })
   })
 
   test('T-08430: usage.updated rejects a half model identity', () => {

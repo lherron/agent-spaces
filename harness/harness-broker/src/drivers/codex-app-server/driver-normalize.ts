@@ -56,7 +56,6 @@ export function createCodexDriverNormalizer(
     failActiveTurn,
     attributionExtra,
     ensureUnknownAttribution,
-    rejectPendingAttributions,
     attributeFirstItem,
     emitAttribution,
   } = events
@@ -451,11 +450,6 @@ export function createCodexDriverNormalizer(
           if (attribution?.ownership !== 'own') void startNextQueuedSubmission()
         }
         s.turnActive = false
-        if (s.codexTui && s.attributionByTurn.get(event.payload.turnId)?.ownership === 'unknown') {
-          rejectPendingAttributions(
-            new BrokerError(BrokerErrorCode.HarnessError, 'Turn attribution was lost')
-          )
-        }
         // Clear turn timeout on any turn termination
         if (s.turnTimeout !== undefined) {
           clearTimeout(s.turnTimeout)

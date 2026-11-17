@@ -334,6 +334,19 @@ describe('codex-tui steer', () => {
           ),
         'idle steer should execute as the initiating input of its own turn'
       )
+      // T-13687: the idle fallback is an own turn, reported started, settled once.
+      expect(
+        run.events.find(
+          (event) => event.type === 'input.accepted' && event.inputId === steer.submissionId
+        )?.payload
+      ).toMatchObject({ disposition: 'started' })
+      expect(
+        run.events.filter(
+          (event) =>
+            event.type.startsWith('submission.') &&
+            (event.payload as { submissionId?: string }).submissionId === steer.submissionId
+        )
+      ).toHaveLength(1)
     } finally {
       await run.broker.stop({ invocationId, reason: 'test cleanup' })
       await run.broker.dispose({ invocationId })

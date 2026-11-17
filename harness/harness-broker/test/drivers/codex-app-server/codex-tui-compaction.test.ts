@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test'
 import { rm } from 'node:fs/promises'
+import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import { SUBMISSION_TERMINAL_TYPES } from '../../../src/invocation-constants'
 import { inputIdFrom, invocationIdFrom } from '../../ids'
 import {
   FakeCodexRpc,
@@ -9,6 +11,16 @@ import {
   setupDriver,
   waitFor,
 } from './codex-tui-transport-support'
+
+function terminalsFor(events: InvocationEventEnvelope[], submissionId: string): string[] {
+  return events
+    .filter(
+      (event) =>
+        SUBMISSION_TERMINAL_TYPES.has(event.type) &&
+        (event.payload as { submissionId?: string }).submissionId === submissionId
+    )
+    .map((event) => event.type)
+}
 
 test('T-13668: compaction before the queued user item binds submission _79 and releases the next input', async () => {
   const rpc = new FakeCodexRpc()
@@ -89,6 +101,8 @@ test('T-13668: compaction before the queued user item binds submission _79 and r
     expect(
       run.events.find((e) => e.type === 'turn.completed' && e.turnId === turnId)?.inputId
     ).toBe(inputIdFrom(first.submissionId))
+    expect(terminalsFor(run.events, first.submissionId)).toEqual(['submission.executed'])
+    expect(terminalsFor(run.events, second.submissionId)).toEqual(['submission.executed'])
   } finally {
     await run.broker.stop({ invocationId, reason: 'test cleanup' })
     await run.broker.dispose({ invocationId })
@@ -104,7 +118,7 @@ test.each([
   'invalid-cursor',
   'paginated',
   'late-ack',
-] as const)('T-13668: unbound input with queue state %s', async (state) => {
+] as const)('T-13668/T-13687: unbound input with queue state %s', async (state) => {
   const rpc = new FakeCodexRpc()
   const invocationId = invocationIdFrom(`inv_unbound_${state}`)
   const run = await setupDriver(rpc, invocationId)
@@ -190,27 +204,54 @@ test.each([
       ownership: 'foreign',
       origin: state === 'human-left' ? 'human' : 'autonomous',
     })
+    // T-13687: the compaction turn's terminal frees the slot whatever the queue
+    // read shows, so the next input reaches Codex and runs.
+    await waitFor(() => inputs.length === 2, 'next input reaches Codex after the compaction turn')
+    await waitFor(
+      () => terminalsFor(run.events, second.submissionId).length > 0,
+      'next input settles'
+    )
+    expect(terminalsFor(run.events, second.submissionId)).toEqual(['submission.executed'])
+    // The unbound input never takes a waiter rejection.
+    expect(
+      run.events.filter((e) => e.type === 'input.rejected' && e.inputId === first.submissionId)
+    ).toHaveLength(0)
     if (state === 'left' || state === 'human-left' || state === 'late-ack') {
+      // A complete read shows the row gone: its fate is lost, exactly once.
+      await waitFor(
+        () => terminalsFor(run.events, first.submissionId).length > 0,
+        'unbound input settles lost'
+      )
       expect(
-        run.events.find((e) => e.type === 'input.rejected' && e.inputId === first.submissionId)
+        run.events.find((e) => e.type === 'submission.lost' && e.inputId === first.submissionId)
           ?.payload
-      ).toMatchObject({
-        deliveryEvidence: 'possibly_written',
-        reason: expect.stringContaining("left Codex's queue without an attributed turn"),
-      })
-      expect(inputs).toHaveLength(2)
-      expect(
-        run.events.some(
-          (e) => e.type === 'submission.executed' && e.payload.submissionId === second.submissionId
-        )
-      ).toBe(true)
+      ).toEqual({ submissionId: first.submissionId, reason: 'left-queue-unattributed' })
+      expect(terminalsFor(run.events, first.submissionId)).toEqual(['submission.lost'])
     } else {
-      expect(inputs).toHaveLength(1)
-      expect(run.events.filter((e) => e.type === 'input.rejected')).toHaveLength(0)
-      if (state === 'paginated') expect(queueReads).toBe(2)
-      // It really remains pending and can subsequently bind, not merely avoid rejection.
+      // Held, or an unreadable or partial read: the fate stays open.
+      expect(terminalsFor(run.events, first.submissionId)).toEqual([])
+      if (state === 'paginated') expect(queueReads).toBeGreaterThanOrEqual(2)
+      if (state === 'invalid-cursor') {
+        // Nothing later binds it, so teardown is its terminal.
+        await run.broker.stop({ invocationId, reason: 'test teardown' })
+        await waitFor(
+          () => terminalsFor(run.events, first.submissionId).length > 0,
+          'teardown settles the open fate'
+        )
+        expect(
+          run.events.find((e) => e.type === 'submission.lost' && e.inputId === first.submissionId)
+            ?.payload
+        ).toEqual({ submissionId: first.submissionId, reason: 'teardown' })
+        expect(terminalsFor(run.events, first.submissionId)).toEqual(['submission.lost'])
+        return
+      }
+      // It really remains pending and can subsequently bind.
       emitTurn(rpc, 'turn_delayed', { clientId: inputs[0] ?? null })
-      await waitFor(() => inputs.length === 2, 'later attribution releases the queue')
+      await waitFor(
+        () => terminalsFor(run.events, first.submissionId).length > 0,
+        'later attribution binds the open input'
+      )
+      expect(terminalsFor(run.events, first.submissionId)).toEqual(['submission.executed'])
     }
     expect(run.events.filter((e) => e.type === 'invocation.failed')).toHaveLength(0)
   } finally {

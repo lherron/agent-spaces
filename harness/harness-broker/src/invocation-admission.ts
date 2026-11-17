@@ -15,7 +15,7 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import type { ApplyInputResult, DeliveryEvidence } from './drivers/driver'
-import { deliveryEvidenceOf, steerRequiresOwnTurnOf } from './drivers/driver'
+import { deliveryEvidenceOf, steerRequiresOwnTurnOf, withDeliveryEvidence } from './drivers/driver'
 import { BrokerError } from './errors'
 import { stableJsonStringify } from './event-ledger'
 import { REASON_STEER_NOT_SUPPORTED, normalizeResponseFormat } from './invocation-constants'
@@ -621,10 +621,14 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
         inv.pendingOwnTurnSubmissionId !== undefined &&
         inv.pendingOwnTurnSubmissionId !== inputId
       ) {
-        throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Seat delivery is busy', {
-          invocationId: inv.invocationId,
-          submissionId: inv.pendingOwnTurnSubmissionId,
-        })
+        // Refused before the driver is called: nothing was written.
+        throw withDeliveryEvidence(
+          new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Seat delivery is busy', {
+            invocationId: inv.invocationId,
+            submissionId: inv.pendingOwnTurnSubmissionId,
+          }),
+          'not_written'
+        )
       }
       inv.pendingOwnTurnSubmissionId = inputId
       inv.pendingOwnTurnContestedByTurnId = undefined
@@ -700,47 +704,67 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
     const run = previous
       .catch(() => undefined)
       .then(async (): Promise<InvocationInputResponse> => {
-        try {
-          await applySteerNow.call(inv.driver, input)
-        } catch (err) {
-          let failure = err
-          if (steerRequiresOwnTurnOf(err)) {
-            try {
-              const result = await applyAndEmit(inv, input)
-              return {
-                inputId: input.inputId,
-                accepted: true,
-                disposition: 'started',
-                turnId: result.turnId,
+        // Whether any steer attempt may already have written the body.
+        let possiblyWritten = false
+        for (;;) {
+          try {
+            await applySteerNow.call(inv.driver, input)
+          } catch (err) {
+            let failure = err
+            if (steerRequiresOwnTurnOf(err)) {
+              if (deliveryEvidenceOf(err) !== 'not_written') possiblyWritten = true
+              // T-13687 C: another submission holds the own-turn slot and the
+              // harness has no turn yet. A steer is never refused busy and
+              // never starts a second own turn: it waits for that turn to start
+              // (or the slot to release), then injects again.
+              if (ownTurnSlotHeldByOther(inv, input.inputId)) {
+                if (await waitForPendingWindowChange(inv)) continue
+                failure = withDeliveryEvidence(
+                  new BrokerError(
+                    BrokerErrorCode.InvalidInvocationState,
+                    'Invocation closed while the steer waited for the pending turn to start'
+                  ),
+                  possiblyWritten ? 'possibly_written' : 'not_written'
+                )
+              } else {
+                try {
+                  const result = await applyAndEmit(inv, input)
+                  return {
+                    inputId: input.inputId,
+                    accepted: true,
+                    disposition: 'started',
+                    turnId: result.turnId,
+                  }
+                } catch (startError) {
+                  failure = startError
+                }
               }
-            } catch (startError) {
-              failure = startError
             }
+            // The driver says what its failure proves about the body. A refusal
+            // raised before the first paste is a real no-write; everything from
+            // the paste onward may have landed.
+            const evidence = deliveryEvidenceOf(failure) ?? 'possibly_written'
+            const failed = inv.submissions.get(input.inputId)
+            if (failed !== undefined) failed.deliveryEvidence = evidence
+            return rejectQueueInput(
+              inv,
+              input.inputId,
+              String(failure instanceof Error ? failure.message : failure),
+              evidence
+            )
           }
-          // The driver says what its failure proves about the body. A refusal
-          // raised before the first paste is a real no-write; everything from
-          // the paste onward may have landed.
-          const evidence = deliveryEvidenceOf(failure) ?? 'possibly_written'
-          const failed = inv.submissions.get(input.inputId)
-          if (failed !== undefined) failed.deliveryEvidence = evidence
-          return rejectQueueInput(
-            inv,
-            input.inputId,
-            String(failure instanceof Error ? failure.message : failure),
-            evidence
-          )
-        }
 
-        emit(
-          inv,
-          'input.accepted',
-          { inputId: input.inputId, disposition: 'attempted_steer' },
-          { inputId: input.inputId }
-        )
-        return {
-          inputId: input.inputId,
-          accepted: true,
-          disposition: 'attempted_steer',
+          emit(
+            inv,
+            'input.accepted',
+            { inputId: input.inputId, disposition: 'attempted_steer' },
+            { inputId: input.inputId }
+          )
+          return {
+            inputId: input.inputId,
+            accepted: true,
+            disposition: 'attempted_steer',
+          }
         }
       })
     const tail = run.then(
@@ -755,6 +779,41 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
         inv.steerPromise = undefined
       }
     }
+  }
+
+  function ownTurnSlotHeldByOther(inv: Invocation, inputId: InputId): boolean {
+    return (
+      inv.pendingOwnTurnSubmissionId !== undefined && inv.pendingOwnTurnSubmissionId !== inputId
+    )
+  }
+
+  function invocationClosed(inv: Invocation): boolean {
+    return inv.terminalEmitted || (inv.state !== 'ready' && inv.state !== 'turn_active')
+  }
+
+  /**
+   * Resolve true at the next turn start or own-turn slot change, false once
+   * the invocation stops accepting input. Change-driven: never a timer, and a
+   * turn already active when the wait begins does not satisfy it.
+   */
+  function waitForPendingWindowChange(inv: Invocation): Promise<boolean> {
+    if (invocationClosed(inv)) return Promise.resolve(false)
+    const held = inv.pendingOwnTurnSubmissionId
+    return new Promise<boolean>((resolve) => {
+      const watchers = inv.pendingWindowWatchers ?? new Set()
+      inv.pendingWindowWatchers = watchers
+      const watcher = (event: { type: string }): void => {
+        let outcome: boolean | undefined
+        if (invocationClosed(inv)) outcome = false
+        else if (event.type === 'turn.started' || inv.pendingOwnTurnSubmissionId !== held) {
+          outcome = true
+        }
+        if (outcome === undefined) return
+        watchers.delete(watcher)
+        resolve(outcome)
+      }
+      watchers.add(watcher)
+    })
   }
 
   function rejectQueueInput(
@@ -789,10 +848,15 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
       const pendingId = inv.pendingOwnTurnSubmissionId
       inv.pendingOwnTurnSubmissionId = undefined
       inv.pendingOwnTurnContestedByTurnId = undefined
-      emit(inv, 'submission.cancelled', {
-        submissionId: pendingId,
-        reason: 'teardown',
-      })
+      // T-13687 B: this body was already handed to the driver and may have been
+      // written, so its teardown fate is ambiguous. `cancelled` stays for
+      // inputs never handed over (inv.pending, inv.brokerQueue).
+      emit(
+        inv,
+        'submission.lost',
+        { submissionId: pendingId, reason: 'teardown' },
+        { inputId: pendingId }
+      )
     }
     while (inv.pending.length > 0) {
       const item = inv.pending.shift()
@@ -820,6 +884,24 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
         submissionId: item.record.submissionId,
         reason: 'teardown',
       })
+    }
+  }
+
+  /**
+   * T-13687 B: at invocation exit or failure every submission gets a terminal.
+   * Queue eviction settles only what the broker still held; a delivered body
+   * whose attempt failed possibly_written, or one the harness never confirmed,
+   * has no other evidence left to come, so it is settled lost exactly once.
+   */
+  function settleUndisposedSubmissions(inv: Invocation): void {
+    for (const record of [...inv.submissions.values()]) {
+      if (record.terminal || inv.submissionDispositions.has(record.submissionId)) continue
+      emit(
+        inv,
+        'submission.lost',
+        { submissionId: record.submissionId, reason: 'teardown' },
+        { inputId: record.submissionId as InputId }
+      )
     }
   }
 
@@ -879,6 +961,7 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
     attemptSteerAndEmit,
     rejectQueueInput,
     evictQueue,
+    settleUndisposedSubmissions,
     resolveInputId,
     fingerprintInput,
     recordDisposition,

@@ -321,7 +321,14 @@ const EVENT_PAYLOAD_VALIDATORS = {
   },
   'submission.lost': (payload, issues) => {
     requireString(payload['submissionId'], 'payload.submissionId', issues)
-    optionalEnum(payload['reason'], ['turn-correlation-lost'], 'payload.reason', issues, true)
+    optionalEnum(
+      payload['reason'],
+      // broker-gone is authored by HRC when a broker dies unsettled; the broker never emits it.
+      ['turn-correlation-lost', 'left-queue-unattributed', 'teardown', 'broker-gone'],
+      'payload.reason',
+      issues,
+      true
+    )
   },
   'capture.warning': (payload, issues) => {
     requireString(payload['message'], 'payload.message', issues)

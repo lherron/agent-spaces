@@ -301,9 +301,6 @@ export function createCodexDriverEvents(s: CodexDriverState) {
       activeTurnExtra()
     )
     settlePendingSteersForTurn(s.currentTurnId)
-    if (s.codexTui && s.attributionByTurn.get(s.currentTurnId)?.ownership === 'unknown') {
-      rejectPendingAttributions(new BrokerError(BrokerErrorCode.HarnessError, failure.message))
-    }
     s.turnActive = false
     if (s.turnTimeout !== undefined) {
       clearTimeout(s.turnTimeout)
@@ -347,24 +344,17 @@ export function createCodexDriverEvents(s: CodexDriverState) {
     )
     if (attribution.ownership === 'own' && attribution.inputId !== undefined) {
       s.currentInputId = attribution.inputId
+      // Own attribution is this input's fate (the broker records it executed);
+      // its attribution tracking ends here.
       s.pendingBrokerInputs.delete(attribution.inputId)
       s.retiredSteerTurnsByInput.delete(attribution.inputId)
-      s.attributionWaiters.get(attribution.inputId)?.resolve(turn)
-      s.attributionWaiters.delete(attribution.inputId)
+      s.queuedSubmissions.delete(attribution.inputId)
     }
   }
 
   function ensureUnknownAttribution(turn: TurnId | undefined): void {
     if (!s.codexTui || turn === undefined || s.attributionByTurn.has(turn)) return
     emitAttribution(turn, { ownership: 'unknown', origin: 'unknown' })
-  }
-
-  function rejectPendingAttributions(error: Error): void {
-    for (const waiter of s.attributionWaiters.values()) waiter.reject(error)
-    s.attributionWaiters.clear()
-    s.pendingBrokerInputs.clear()
-    s.retiredSteerTurnsByInput.clear()
-    s.queuedSubmissions.clear()
   }
 
   function attributeFirstItem(
@@ -378,8 +368,11 @@ export function createCodexDriverEvents(s: CodexDriverState) {
     // A context-entry item can never initiate or re-own the turn it joins.
     // Even in a provider-ordering anomaly where it is the first observed item,
     // leave attribution unresolved rather than turning a steer into execution.
+    // A steer can land before a queued input's own user item (T-13687 C: the
+    // steer waited for that turn to start), so it keeps the window open while
+    // a broker input is pending.
     if (pendingSteer !== undefined) {
-      s.firstItemSeen.add(turn)
+      if (s.pendingBrokerInputs.size === 0) s.firstItemSeen.add(turn)
       return true
     }
     const item = asFrameRecord(params['item'])
@@ -429,7 +422,6 @@ export function createCodexDriverEvents(s: CodexDriverState) {
     attributionExtra,
     emitAttribution,
     ensureUnknownAttribution,
-    rejectPendingAttributions,
     attributeFirstItem,
   }
 }

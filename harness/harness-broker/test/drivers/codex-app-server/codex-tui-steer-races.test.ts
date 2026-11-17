@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { rm } from 'node:fs/promises'
 import type { InvocationEventEnvelope } from 'spaces-harness-broker-protocol'
+import { SUBMISSION_TERMINAL_TYPES } from '../../../src/invocation-constants'
 import { invocationIdFrom, turnIdFrom } from '../../ids'
 import {
   FakeCodexRpc,
@@ -510,7 +511,9 @@ describe('codex-tui steer races and autonomous turns', () => {
   // A native terminal now reconciles against Codex's queue (T-13668), covered
   // by codex-tui-compaction.test.ts. Transport/error/timeout failures retain
   // the existing unknown-attribution fail-closed path.
-  test.each(['app-server-error', 'turn-timeout', 'rpc-close'] as const)(
+  // T-13687: turnTimeoutMs no longer bounds a codex-tui turn (delivery stops
+  // waiting on attribution); codex-tui-delivery.test.ts asserts that contract.
+  test.each(['app-server-error', 'rpc-close'] as const)(
     'attributes an itemless pending turn unknown before %s and fails correlation closed',
     async (terminalPath) => {
       const rpc = new FakeCodexRpc()
@@ -535,9 +538,6 @@ describe('codex-tui steer races and autonomous turns', () => {
       }
       const invocationId = invocationIdFrom(`inv_codex_tui_itemless_${terminalPath}`)
       const run = await setupDriver(rpc, invocationId)
-      if (terminalPath === 'turn-timeout') {
-        run.invocationSpec.process.limits = { startupTimeoutMs: 2_000, turnTimeoutMs: 25 }
-      }
       try {
         await run.broker.start({ spec: run.invocationSpec }, {}, { terminalSurface: lease() })
         const queued = await run.broker.enqueue({ invocationId, origin, body: 'pending' })
@@ -598,6 +598,15 @@ describe('codex-tui steer races and autonomous turns', () => {
           })
         ).toMatchObject({ policy: 'open', submissionIds: [] })
         expect(pendingInputId).toBe(queued.submissionId)
+        expect(
+          run.events
+            .filter(
+              (event) =>
+                SUBMISSION_TERMINAL_TYPES.has(event.type) &&
+                (event.payload as { submissionId?: string }).submissionId === queued.submissionId
+            )
+            .map((event) => [event.type, (event.payload as { reason?: string }).reason])
+        ).toEqual([['submission.lost', 'turn-correlation-lost']])
       } finally {
         await run.broker.stop({ invocationId, reason: 'test cleanup' })
         await run.broker.dispose({ invocationId })

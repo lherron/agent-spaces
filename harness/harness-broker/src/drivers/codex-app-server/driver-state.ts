@@ -154,15 +154,16 @@ export interface CodexDriverState {
   readonly pendingSteers: Map<InputId, PendingSteer>
   readonly retiredSteerTurnsByInput: Map<InputId, Set<TurnId>>
   readonly observedUserItems: Set<string>
+  /**
+   * Codex queue identity of a delivered codex-tui input, kept only while its
+   * attribution is open: cleared at its fate (own attribution or lost), not
+   * when delivery returns.
+   */
   readonly queuedSubmissions: Map<InputId, string>
   /** Fences queue/add acknowledgements that arrive after a native terminal. */
   completedTurnVersion: number
   readonly attributionByTurn: Map<TurnId, TurnAttribution>
   readonly firstItemSeen: Set<TurnId>
-  readonly attributionWaiters: Map<
-    InputId,
-    { resolve: (turnId: TurnId) => void; reject: (error: Error) => void }
-  >
   threadId: string | undefined
   currentInputId: InputId | undefined
   currentTurnId: TurnId | undefined
@@ -260,7 +261,6 @@ export function createCodexDriverState(): CodexDriverState {
     completedTurnVersion: 0,
     attributionByTurn: new Map(),
     firstItemSeen: new Set(),
-    attributionWaiters: new Map(),
     threadId: undefined,
     currentInputId: undefined,
     currentTurnId: undefined,

@@ -16,6 +16,7 @@ import {
   BROKER_DECISION_TYPES,
   BROKER_PROVENANCE,
   INVOCATION_TEARDOWN_TYPES,
+  REASON_INVOCATION_TERMINATED,
   SESSION_LEAVE_REASONS,
   SUBMISSION_TERMINAL_TYPES,
   TOOL_CALL_TEARDOWN_CODE,
@@ -43,7 +44,8 @@ export type InvocationEvents = ReturnType<typeof createInvocationEvents>
  */
 export function createInvocationEvents(deps: InvocationEventsDeps) {
   const { sequencer, onEvent } = deps
-  const { scheduleDrain, scheduleAdmissionDrain } = deps.admission
+  const { scheduleDrain, scheduleAdmissionDrain, evictQueue, settleUndisposedSubmissions } =
+    deps.admission
   const applyEventState = createStateProjection({
     emit,
     observePendingOwnTurnStart,
@@ -356,6 +358,11 @@ export function createInvocationEvents(deps: InvocationEventsDeps) {
     }
   }
 
+  /** Tell steers waiting out a pending own-turn window about this event (T-13687 C). */
+  function notifyPendingWindowWatchers(inv: Invocation, event: InvocationEventEnvelope): void {
+    for (const watcher of [...(inv.pendingWindowWatchers ?? [])]) watcher(event)
+  }
+
   function emitEvent<K extends InvocationEventType>(
     inv: Invocation,
     descriptor: InvocationEventFor<K>,
@@ -411,6 +418,11 @@ export function createInvocationEvents(deps: InvocationEventsDeps) {
         'Tool call did not report a terminal result before the invocation terminated',
         () => true
       )
+      // T-13687 B: every submission's terminal reaches the stream BEFORE the
+      // invocation's own terminal. HRC fails the active run on invocation end
+      // and the first completion wins, so a later lost would never be seen.
+      evictQueue(inv, REASON_INVOCATION_TERMINATED)
+      settleUndisposedSubmissions(inv)
     }
 
     // Exactly-once `turn.started` bracket (T-04846). A turn may be started from
@@ -479,11 +491,14 @@ export function createInvocationEvents(deps: InvocationEventsDeps) {
       const record = inputId !== undefined ? inv.submissions.get(inputId) : undefined
       const policy = record?.class === 'steer' ? 'open' : (record?.turnPolicy ?? 'open')
       inv.currentTurnPolicy = policy
+      // Attribution names the turn's owner; it never erases what the turn
+      // already carried. A steer can be absorbed before a delayed initiating
+      // attribution on the same observed turn (T-13687).
       inv.turnManifests.set(turnId, {
         invocationId: inv.invocationId,
         turnId,
         policy,
-        submissionIds: [],
+        submissionIds: inv.turnManifests.get(turnId)?.submissionIds ?? [],
       })
     }
     if (TURN_TERMINAL_TYPES.has(event.type) && event.turnId !== undefined) {
@@ -546,6 +561,8 @@ export function createInvocationEvents(deps: InvocationEventsDeps) {
     // across an unrelated terminal, because its evidence may arrive on a later
     // turn.
     settleOwnTurnAtTerminal(inv, terminalTurnId)
+
+    notifyPendingWindowWatchers(inv, event)
 
     // Follow-on diagnostics (e.g. truncation notices) are emitted as their own
     // events. Their payloads are small, so they never re-trigger truncation.

@@ -1,11 +1,10 @@
-import type { InputId, InvocationInput, TurnId } from 'spaces-harness-broker-protocol'
+import type { InputId, InvocationInput } from 'spaces-harness-broker-protocol'
 import { BrokerErrorCode } from 'spaces-harness-broker-protocol'
 import { BrokerError } from '../../errors'
 import { terminateProcess } from '../../runtime/signals'
 import type { CodexCliTmuxHookEnvelope } from '../codex-cli-tmux/hook-events'
 import { extractCodexHookRecord } from '../codex-cli-tmux/hook-events'
 import type { ApplyInputResult, DriverContext } from '../driver'
-import { withDeliveryEvidence } from '../driver'
 import { createHookCaptureSeam } from '../hook-capture'
 import { getString } from '../hook-json'
 import {
@@ -33,6 +32,9 @@ import { CodexRpcError, type JsonRpcNotification } from './rpc-client'
 
 export type CodexDriverControl = ReturnType<typeof createCodexDriverControl>
 
+/** `submission.lost` reason for an input that left Codex's queue unattributed. */
+const SUBMISSION_LOST_LEFT_QUEUE = 'left-queue-unattributed' as const
+
 function isLive(proc: { exitCode: number | null; signalCode: NodeJS.Signals | null }): boolean {
   return proc.exitCode === null && proc.signalCode === null
 }
@@ -42,13 +44,7 @@ function isLive(proc: { exitCode: number | null; signalCode: NodeJS.Signals | nu
  * the codex-tui queued-input delivery path.
  */
 export function createCodexDriverControl(s: CodexDriverState, events: CodexDriverEvents) {
-  const {
-    requireCtx,
-    emitDiagnostic,
-    emitTerminalFailure,
-    failActiveTurn,
-    ensureUnknownAttribution,
-  } = events
+  const { requireCtx, emitDiagnostic, emitTerminalFailure, selfMintedProvenance } = events
 
   function closeRendererControlListener(): void {
     const listener = s.rendererControlListener
@@ -88,10 +84,6 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
     }
     s.rendererQuitAccepted = true
     s.stopping = true
-    if (s.turnTimeout !== undefined) {
-      clearTimeout(s.turnTimeout)
-      s.turnTimeout = undefined
-    }
     requireCtx().emit(
       'continuation.cleared',
       { reason: 'prompt_input_exit' },
@@ -248,6 +240,13 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
     })
   }
 
+  /**
+   * codex-tui delivery (T-13687). Codex's `thread/queue/add` acknowledgement
+   * is the delivery boundary, and the call returns there with no turn id: the
+   * driver is `observed`, so the broker's slot rules free the next input at a
+   * turn boundary and attribution settles this input's fate later, from the
+   * user item carrying its client id. Nothing here waits on attribution.
+   */
   async function applyQueuedInput(
     input: InvocationInput,
     inputId: InputId
@@ -255,10 +254,9 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
     if (!s.rpc || !s.threadId || !s.driverSpec) {
       throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Invocation is not ready')
     }
+    // Armed before the write: a fast provider can report the user item before
+    // queue/add's response arrives.
     s.pendingBrokerInputs.add(inputId)
-    const attributed = new Promise<TurnId>((resolve, reject) => {
-      s.attributionWaiters.set(inputId, { resolve, reject })
-    })
     const completedTurnVersion = s.completedTurnVersion
     try {
       const response = await s.rpc.sendRequest<unknown>('thread/queue/add', {
@@ -273,7 +271,8 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
           'Codex thread/queue/add response did not carry queuedSubmission.id'
         )
       }
-      s.queuedSubmissions.set(inputId, queuedSubmissionId)
+      // The provider queue identity matters only while attribution is open.
+      if (s.pendingBrokerInputs.has(inputId)) s.queuedSubmissions.set(inputId, queuedSubmissionId)
       requireCtx().emit(
         'driver.notice',
         {
@@ -295,40 +294,9 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
       if (s.queuedStartRequired && !s.turnActive) {
         await startQueuedSubmission(inputId, queuedSubmissionId)
       }
-      const timeoutMs = s.spec?.process.limits?.turnTimeoutMs
-      const observedTurnId =
-        timeoutMs !== undefined && timeoutMs > 0
-          ? await Promise.race([
-              attributed,
-              new Promise<never>((_resolve, reject) => {
-                s.turnTimeout = setTimeout(() => {
-                  const timeout = new BrokerError(
-                    BrokerErrorCode.Timeout,
-                    'Turn attribution timed out'
-                  )
-                  ensureUnknownAttribution(s.currentTurnId)
-                  failActiveTurn({
-                    message: timeout.message,
-                    code: 'Timeout',
-                    retryable: false,
-                    reason: 'turn-timeout',
-                  })
-                  reject(timeout)
-                }, timeoutMs)
-              }),
-            ])
-          : await attributed
-      if (s.turnTimeout !== undefined) clearTimeout(s.turnTimeout)
-      s.turnTimeout = undefined
-      s.queuedSubmissions.delete(inputId)
-      return { turnId: observedTurnId }
+      return {}
     } catch (error) {
-      s.pendingBrokerInputs.delete(inputId)
-      s.retiredSteerTurnsByInput.delete(inputId)
-      s.attributionWaiters.delete(inputId)
-      s.queuedSubmissions.delete(inputId)
-      if (s.turnTimeout !== undefined) clearTimeout(s.turnTimeout)
-      s.turnTimeout = undefined
+      forgetQueuedInput(inputId)
       throw error instanceof BrokerError
         ? error
         : new BrokerError(
@@ -338,6 +306,20 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
     }
   }
 
+  function forgetQueuedInput(inputId: InputId): void {
+    s.pendingBrokerInputs.delete(inputId)
+    s.retiredSteerTurnsByInput.delete(inputId)
+    s.queuedSubmissions.delete(inputId)
+  }
+
+  /**
+   * Fate settler for delivered-but-unattributed inputs (T-13668, T-13687). At
+   * a turn terminal, a COMPLETE provider queue read that no longer holds the
+   * row, with no turn claiming the input, proves the body left Codex's queue
+   * unattributed: it is settled `submission.lost`. Any failed or partial read
+   * changes nothing. The slot is the broker's and is already free; the next
+   * terminal reads again.
+   */
   async function reconcilePendingQueuedInputs(): Promise<void> {
     const rpc = s.rpc
     const threadId = s.threadId
@@ -373,7 +355,7 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
       }
       // A newer turn may already have consumed the submission and still be
       // compacting before its user item. Its terminal will reconcile again.
-      if (s.rpc !== rpc || s.threadId !== threadId || s.turnActive) return
+      if (s.rpc !== rpc || s.threadId !== threadId || s.turnActive || s.terminalEmitted) return
       for (const [inputId, queuedSubmissionId] of pending) {
         if (
           !s.pendingBrokerInputs.has(inputId) ||
@@ -381,17 +363,24 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
           queuedIds.has(queuedSubmissionId)
         )
           continue
-        s.attributionWaiters
-          .get(inputId)
-          ?.reject(
-            withDeliveryEvidence(
-              new BrokerError(
-                BrokerErrorCode.HarnessError,
-                `Codex queued submission ${queuedSubmissionId} left Codex's queue without an attributed turn`
-              ),
-              'possibly_written'
-            )
-          )
+        forgetQueuedInput(inputId)
+        emitDiagnostic(
+          'warn',
+          'Codex queued submission left the queue without an attributed turn',
+          {
+            inputId,
+            queuedSubmissionId,
+          }
+        )
+        requireCtx().emit(
+          'submission.lost',
+          { submissionId: inputId, reason: SUBMISSION_LOST_LEFT_QUEUE },
+          {
+            inputId,
+            driver: { kind: 'codex-app-server', rawType: 'thread/queue/list' },
+            provenance: selfMintedProvenance(),
+          }
+        )
       }
     } catch (error) {
       if (s.rpc !== rpc || s.threadId !== threadId) return
