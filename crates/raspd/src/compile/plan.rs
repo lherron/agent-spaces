@@ -10,7 +10,8 @@ use super::provisioning::{self, ClaudeDefaults, CodexDefaults};
 use super::scope::{Handle, agent_session_env, handle_parts, parse_scope_ref};
 use super::util::{self, hash};
 use super::{
-    Fwd, Phases, agent_tools, codex, fwd, fwd_at, release_binding, request, s, spaces, stage,
+    Fwd, Phases, agent_tools, claude_bundle, codex, fwd, fwd_at, release_binding, request, s,
+    space_plan, spaces, stage,
 };
 use crate::json::J;
 use crate::reads::Env;
@@ -35,7 +36,7 @@ pub(super) struct Plan {
     pub(super) closure: spaces::Closure,
     pub(super) integrities: Vec<String>,
     pub(super) lock_path: String,
-    pub(super) space_plans: Vec<stage::SpacePlan>,
+    pub(super) space_plans: Vec<space_plan::SpacePlan>,
     pub(super) agent_local: Option<stage::AgentLocal>,
     pub(super) identity: J,
     pub(super) codex_options: Option<J>,
@@ -56,7 +57,7 @@ pub(super) enum Launch {
     Claude {
         defaults: ClaudeDefaults,
         path: String,
-        statusline: stage::Statusline,
+        statusline: claude_bundle::Statusline,
     },
     Codex {
         defaults: CodexDefaults,
@@ -525,7 +526,7 @@ fn plan_spaces(
     agent_root: &str,
     project_root: Option<&str>,
     registry: &str,
-) -> Result<Vec<stage::SpacePlan>, Fwd> {
+) -> Result<Vec<space_plan::SpacePlan>, Fwd> {
     let mut space_plans = vec![];
     for space in &closure.spaces {
         let (name, version) = spaces::plugin_identity(&space.manifest);
@@ -538,8 +539,8 @@ fn plan_spaces(
         if let Some(v) = &version {
             lock_plugin.set("version", J::str(v));
         }
-        space_plans.extend(stage::plan_space(
-            stage::SpaceInput {
+        space_plans.extend(space_plan::plan_space(
+            space_plan::SpaceInput {
                 key: space.key.clone(),
                 id: space.id.clone(),
                 plugin_name: name,

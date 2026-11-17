@@ -809,7 +809,7 @@ fn compile_refused(f: Fwd, agent_root: &str) -> Result<J, Fwd> {
         // inspection whose project root is empty carries no projectRoot, so
         // a project space cannot resolve.
         ("project_root_required", Some(space)) => {
-            super::stage::sweep_temp(&declaration::process_asp_home());
+            super::temp_lifecycle::sweep_temp(&declaration::process_asp_home());
             ensure_asp_home();
             format!("Project root is required to resolve project space: {space}")
         }

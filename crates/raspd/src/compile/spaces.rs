@@ -716,7 +716,7 @@ pub fn generate_lock(
         (
             "harnesses",
             J::obj([(
-                super::stage::DEFAULT_HARNESS,
+                super::bundle_publish::DEFAULT_HARNESS,
                 J::obj([(
                     "envHash",
                     J::str(env_hash("env-harness-v1\0agent-harness\0", &data)),

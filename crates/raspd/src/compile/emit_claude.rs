@@ -7,7 +7,7 @@ use super::broker_spec::{
 };
 use super::finalize::finalize;
 use super::plan::{Launch, Plan};
-use super::{Fwd, fwd, stage, util};
+use super::{Fwd, claude_bundle, fwd, util};
 use crate::json::J;
 use crate::reads::jspath::basename;
 use crate::release::Release;
@@ -15,7 +15,7 @@ use crate::release::Release;
 pub(super) fn emit_claude(
     plan: &Plan,
     release: &Release,
-    bundle: &stage::Bundle,
+    bundle: &claude_bundle::Bundle,
     system_prompt_path: Option<String>,
     warnings: &mut [String],
     tool_env: EnvPairs,

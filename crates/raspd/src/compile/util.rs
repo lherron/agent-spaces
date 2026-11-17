@@ -65,6 +65,11 @@ pub fn js_trim_end(s: &str) -> &str {
     s.trim_end_matches(js_space)
 }
 
+/// JS `Array.prototype.sort()` on strings: UTF-16 code units.
+pub fn js_sort(names: &mut [String]) {
+    names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+}
+
 /// `sanitizeProjectAgentScopeSegment` (store/paths.ts).
 pub fn sanitize_segment(value: &str) -> String {
     let lowered = js_trim(value).to_lowercase();

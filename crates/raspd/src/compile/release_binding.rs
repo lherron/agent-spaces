@@ -1,11 +1,11 @@
 //! What the selected release's release.json binds a compile to: the Claude
 //! statusline asset and the selected driver's worker (`executionRelease`).
-use super::{Fwd, fwd, s, stage};
+use super::{Fwd, claude_bundle, fwd, s};
 use crate::json::J;
 use crate::reads::jspath::{join, resolve};
 use crate::release::Release;
 
-pub(super) fn release_statusline(release: &Release) -> Result<stage::Statusline, Fwd> {
+pub(super) fn release_statusline(release: &Release) -> Result<claude_bundle::Statusline, Fwd> {
     let manifest = release_manifest(release)?;
     let asset = manifest
         .get("assets")
@@ -21,7 +21,7 @@ pub(super) fn release_statusline(release: &Release) -> Result<stage::Statusline,
     if !full.starts_with(&format!("{root}/")) {
         return Err(fwd(crate::reason!("release_statusline_escapes")));
     }
-    Ok(stage::Statusline {
+    Ok(claude_bundle::Statusline {
         path: full,
         sha256: sha.to_owned(),
     })

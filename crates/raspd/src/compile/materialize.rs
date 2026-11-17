@@ -4,7 +4,11 @@
 //! the path filter, then the harness's runtime home and emission.
 use super::agent_tools::agent_tool_env;
 use super::broker_spec::path_filter_scope;
+use super::bundle_publish::{self, TargetInput};
+use super::claude_bundle;
 use super::plan::{Launch, Plan};
+use super::plugin_conflicts::check_skill_and_command_conflicts;
+use super::temp_lifecycle::{materialization_lock_path, sweep_temp, write_prompt_artifact};
 use super::util::{self, sanitize_segment, sha256_hex};
 use super::workspace_trust::workspace_trust;
 use super::{
@@ -22,7 +26,7 @@ pub(super) fn materialize_and_emit(
 ) -> Result<J, Fwd> {
     let asp_home = &plan.asp_home;
     let target_name = plan.agent_name.clone();
-    stage::sweep_temp(asp_home);
+    sweep_temp(asp_home);
     ensure_asp_home();
     phases.lap("temp-sweep");
 
@@ -70,7 +74,7 @@ pub(super) fn materialize_and_emit(
     }
     let hashes = match artifacts
         .iter()
-        .map(|a| stage::hash_directory(&a.path))
+        .map(|a| bundle_publish::hash_directory(&a.path))
         .collect::<Result<Vec<_>, _>>()
     {
         Ok(h) => h,
@@ -85,7 +89,7 @@ pub(super) fn materialize_and_emit(
         .cloned()
         .unwrap_or(J::Null);
     let identity_of = |k: &str| plan.identity.get(k).and_then(J::as_str).unwrap_or_default();
-    let input = stage::TargetInput {
+    let input = TargetInput {
         target_name: &target_name,
         identity: &plan.identity,
         lock_target: &lock_target,
@@ -100,14 +104,10 @@ pub(super) fn materialize_and_emit(
                 sanitize_segment(identity_of("agentId"))
             ),
         ]),
-        statusline: match &plan.launch {
-            Launch::Claude { statusline, .. } => Some(statusline),
-            Launch::Codex { .. } => None,
-        },
     };
-    let fingerprint = stage::fingerprint(&input, &artifacts, &hashes);
-    let published = if codex {
-        stage::publish_target(
+    let fingerprint = bundle_publish::fingerprint(&input, &artifacts, &hashes);
+    let published = match &plan.launch {
+        Launch::Codex { .. } => bundle_publish::publish_target(
             &input,
             &artifacts,
             &fingerprint,
@@ -124,10 +124,16 @@ pub(super) fn materialize_and_emit(
             },
         )
         .and_then(|output| codex::load_bundle(&output))
-        .map(|b| (b.root_dir, vec![b.home]))
-    } else {
-        stage::publish_claude_target(&input, &artifacts, &permissions, &fingerprint, asp_home)
-            .map(|b| (b.root_dir, b.plugin_dirs))
+        .map(|b| (b.root_dir, vec![b.home])),
+        Launch::Claude { statusline, .. } => claude_bundle::publish_claude_target(
+            &input,
+            &artifacts,
+            &permissions,
+            statusline,
+            &fingerprint,
+            asp_home,
+        )
+        .map(|b| (b.root_dir, b.plugin_dirs)),
     };
     let (bundle_root, plugin_dirs) = match published {
         Ok(p) => p,
@@ -136,11 +142,11 @@ pub(super) fn materialize_and_emit(
             return Err(e);
         }
     };
-    stage::check_skill_and_command_conflicts(&plugin_dirs)?;
+    check_skill_and_command_conflicts(&plugin_dirs)?;
 
     // The system prompt artifact, inside the versioned bundle.
     let system_prompt_path = match &plan.system_prompt {
-        Some(sp) => Some(stage::write_prompt_artifact(
+        Some(sp) => Some(write_prompt_artifact(
             &join(&[&bundle_root, ".asp-runtime-artifacts"]),
             sp.prompt.as_deref().unwrap_or(""),
         )?),
@@ -155,7 +161,7 @@ pub(super) fn materialize_and_emit(
 
     match &plan.launch {
         Launch::Claude { .. } => {
-            let bundle = stage::load_bundle(&bundle_root)?;
+            let bundle = claude_bundle::load_bundle(&bundle_root)?;
             // Workspace trust for the launch cwd (warnings, never failures).
             let mut warnings = workspace_trust(&plan.cwd);
             // Agent tool runtime env (mkdirs under the agent's var/) and its warnings.
@@ -241,7 +247,7 @@ fn write_global_lock(asp_home: &str, lock_path: &str, new_lock: &J) -> Result<()
         "lock-file-{}",
         &sha256_hex(resolve(&[lock_path]).as_bytes())[..32]
     );
-    let lock_lock = stage::materialization_lock_path(asp_home, &lock_key);
+    let lock_lock = materialization_lock_path(asp_home, &lock_key);
     lockfile::with_lock(
         &lock_lock,
         &lockfile::MATERIALIZATION,

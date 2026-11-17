@@ -4,12 +4,14 @@
 //! its codex-config, codex-agents, codex-hooks helpers) and the stable runtime
 //! home (drivers/execution/src/run-codex.ts `prepareCodexRuntimeHome`),
 //! materialized under `.asp-runtime.lock` and gated by its `.asp-runtime.json`
-//! fingerprint. The bundle publish, lock and prune protocol is stage.rs's.
-use super::lockfile::{self, MATERIALIZATION};
-use super::stage::{
-    Artifact, SpacePlan, copy_dir, copy_file, io_fwd, is_dir_follow, mkdirp, rm_rf, write,
+//! fingerprint. The bundle publish, lock and prune protocol is bundle_publish.rs's.
+use super::fs_tree::{
+    copy_dir, copy_file, hardlink_or_copy, io_fwd, is_dir_follow, mkdirp, rm_rf, write, write_json,
 };
-use super::util::{canonicalize, js_trim, js_trim_end, now_iso, random_uuid, sha256_hex};
+use super::lockfile::{self, MATERIALIZATION};
+use super::space_plan::SpacePlan;
+use super::stage::Artifact;
+use super::util::{canonicalize, js_sort, js_trim, js_trim_end, now_iso, random_uuid, sha256_hex};
 use super::{Fwd, fwd, iarna, truthy};
 use crate::json::{J, quoted};
 use crate::reads::jspath::{join, relative, resolve};
@@ -56,17 +58,8 @@ fn read_text(path: &str) -> Result<String, Fwd> {
         .map_err(io_fwd)
 }
 
-fn write_json(path: &str, value: &J) -> Result<(), Fwd> {
-    write(path, &format!("{}\n", value.to_json_pretty()))
-}
-
 fn parse_json(text: &str, reason: crate::disposition::Reason) -> Result<J, Fwd> {
     crate::json::parse(text.as_bytes()).ok_or_else(|| fwd(reason))
-}
-
-/// JS `a < b` on strings: UTF-16 code units.
-fn js_sort(names: &mut [String]) {
-    names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
 }
 
 // -- detection (CodexAdapter.detect, codex-discovery.ts) ------------------------
@@ -851,18 +844,7 @@ pub struct Bundle {
 /// `linkOrCopy(src, dest)`.
 fn link_or_copy(src: &str, dest: &str) -> Result<(), Fwd> {
     mkdirp(&crate::reads::jspath::dirname(dest))?;
-    match fs::hard_link(src, dest) {
-        Ok(()) => Ok(()),
-        Err(e)
-            if matches!(
-                e.raw_os_error(),
-                Some(libc::EXDEV | libc::EPERM | libc::ENOTSUP)
-            ) =>
-        {
-            copy_file(src, dest)
-        }
-        Err(e) => Err(io_fwd(e)),
-    }
+    hardlink_or_copy(src, dest)
 }
 
 /// `CodexAdapter.composeTarget(input, outputDir, { clean: true })`: the
