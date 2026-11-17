@@ -22,9 +22,10 @@ beforeEach(() => {
  * SUPPRESSED_METHODS. This test fails on the ones we did NOT classify, which is
  * the half a hand-written case list cannot check itself.
  *
- * The fixture is the wire-name list extracted from
- * `codex-rs/app-server-protocol/src/protocol/common.rs`. When bumping codex,
- * re-extract it from that macro block; a red here means the new version added a
+ * The fixture is the ServerNotification wire-name list from the installed
+ * codex (`codex app-server generate-json-schema`, the same set as the
+ * `server_notification_definitions!` macro). When bumping codex, regenerate it
+ * (the fixture's `_regenerate` field has the steps); a red here means the new version added a
  * method that would otherwise start emitting `Unhandled Codex notification`
  * diagnostics into every live pane.
  */

@@ -44,6 +44,11 @@ export const SUPPRESSED_METHODS = new Set<string>([
   // T-12166 — codex 0.163 per-client read marker (`firstUnread`, `revision`);
   // observed on every turn with the experimental API on. Not turn evidence.
   'thread/readState/changed',
+  // codex 0.169 thread side-state: attachment list, section and next-prompt
+  // prediction updates. UI state for the desktop client, not turn evidence.
+  'thread/attachment/updated',
+  'thread/section/changed',
+  'thread/prediction/updated',
   'project/changed',
   // Deprecated by the provider in favour of the `contextCompaction` ITEM, which
   // this mapper surfaces at `item/completed`. Never observed live.
@@ -55,6 +60,7 @@ export const SUPPRESSED_METHODS = new Set<string>([
 
   // Account / app / capability telemetry with no broker consumer.
   'account/updated',
+  'account/gatewayOAuth/changed', // codex 0.169 gateway OAuth credential change
   'account/login/completed',
   'app/list/updated',
   'mcpServer/oauthLogin/completed',
