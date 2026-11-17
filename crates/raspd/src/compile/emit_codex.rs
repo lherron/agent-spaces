@@ -12,13 +12,19 @@ use super::{Fwd, codex, fwd, s};
 use crate::json::J;
 use crate::release::Release;
 
-#[allow(clippy::too_many_arguments)]
+/// Published Codex runtime artifacts, produced together by materialization.
+/// The shared home and bundle stay borrowed; the per-invocation prompt path
+/// is consumed when the plan is finalized.
+pub(super) struct CodexArtifacts<'a> {
+    pub bundle_root: &'a str,
+    pub home: &'a str,
+    pub system_prompt_path: Option<String>,
+}
+
 pub(super) fn emit_codex(
     plan: &Plan,
     release: &Release,
-    bundle_root: &str,
-    codex_home: &str,
-    system_prompt_path: Option<String>,
+    artifacts: CodexArtifacts<'_>,
     warnings: &mut [String],
     tool_env: EnvPairs,
     path_prepend: Vec<String>,
@@ -91,7 +97,7 @@ pub(super) fn emit_codex(
 
     let locked = locked_env(
         plan,
-        vec![("CODEX_HOME".into(), codex_home.to_owned())],
+        vec![("CODEX_HOME".into(), artifacts.home.to_owned())],
         tool_env,
     );
 
@@ -217,8 +223,8 @@ pub(super) fn emit_codex(
         start_request,
         locked,
         warnings,
-        system_prompt_path,
-        bundle_root,
+        artifacts.system_prompt_path,
+        artifacts.bundle_root,
     )
 }
 

@@ -166,6 +166,22 @@ impl Fallback {
     }
 }
 
+/// The route that produced a reply. Refusal and relay provenance have
+/// distinct states, so completion cannot label a native reply as relayed.
+enum ReplyRoute<'a> {
+    Native,
+    Refused(&'a Fallback),
+    Relayed(Option<&'a Fallback>),
+    UpstreamFailed(Option<&'a Fallback>),
+}
+
+/// Telemetry derived from one reply, including optional compile phases.
+struct ReplyTelemetry<'a> {
+    completion: &'a Completion,
+    bytes: Option<usize>,
+    phases: Option<J>,
+}
+
 #[derive(Default)]
 struct Pending {
     by_id: HashMap<String, VecDeque<Entry>>,
@@ -425,12 +441,12 @@ impl Connection {
             "unmatched",
             "unknown",
             Duration::ZERO,
-            &protocol::unmatched_completion(&message),
-            "native",
-            None,
-            None,
-            bytes,
-            None,
+            ReplyTelemetry {
+                completion: &protocol::unmatched_completion(&message),
+                bytes,
+                phases: None,
+            },
+            ReplyRoute::Native,
         );
     }
 
@@ -471,12 +487,12 @@ impl Connection {
                     &request.method,
                     &request.client,
                     started.elapsed(),
-                    &completion,
-                    "native",
-                    None,
-                    None,
-                    bytes,
-                    None,
+                    ReplyTelemetry {
+                        completion: &completion,
+                        bytes,
+                        phases: None,
+                    },
+                    ReplyRoute::Native,
                 );
             }
             Frame::Request(request)
@@ -581,12 +597,12 @@ impl Connection {
                     &request.method,
                     &request.client,
                     started.elapsed(),
-                    &completion,
-                    "native",
-                    Some("refused"),
-                    Some(&fallback),
-                    bytes,
-                    None,
+                    ReplyTelemetry {
+                        completion: &completion,
+                        bytes,
+                        phases: None,
+                    },
+                    ReplyRoute::Refused(&fallback),
                 );
             }
         }
@@ -626,12 +642,12 @@ impl Connection {
                     &request.method,
                     &request.client,
                     started.elapsed(),
-                    &completion,
-                    "native",
-                    None,
-                    None,
-                    bytes,
-                    phases,
+                    ReplyTelemetry {
+                        completion: &completion,
+                        bytes,
+                        phases,
+                    },
+                    ReplyRoute::Native,
                 );
                 return;
             }
@@ -840,12 +856,12 @@ impl Connection {
                 &entry.method,
                 &entry.client,
                 elapsed,
-                &completion,
-                "bun",
-                Some("relayed"),
-                entry.fallback.as_ref(),
-                bytes,
-                None,
+                ReplyTelemetry {
+                    completion: &completion,
+                    bytes,
+                    phases: None,
+                },
+                ReplyRoute::Relayed(entry.fallback.as_ref()),
             );
             self.settled.notify_waiters();
         }
@@ -915,31 +931,37 @@ impl Connection {
             &method,
             &client,
             started.elapsed(),
-            &completion,
-            "bun",
-            Some("upstream_failed"),
-            fallback.as_ref(),
-            bytes,
-            None,
+            ReplyTelemetry {
+                completion: &completion,
+                bytes,
+                phases: None,
+            },
+            ReplyRoute::UpstreamFailed(fallback.as_ref()),
         );
     }
 
     /// The L3 `rpc.request` line and the metrics row, as Bun's
     /// `onRequestComplete` writes them, plus `servedBy` (and `relay` for Bun,
     /// and `fallback` for a native read relayed instead).
-    #[allow(clippy::too_many_arguments)]
     fn complete(
         &self,
         op: &str,
         client: &str,
         elapsed: Duration,
-        c: &Completion,
-        served_by: &str,
-        relay: Option<&str>,
-        fallback: Option<&Fallback>,
-        reply_bytes: Option<usize>,
-        phases: Option<J>,
+        reply: ReplyTelemetry<'_>,
+        route: ReplyRoute<'_>,
     ) {
+        let ReplyTelemetry {
+            completion: c,
+            bytes: reply_bytes,
+            phases,
+        } = reply;
+        let (served_by, relay, fallback) = match route {
+            ReplyRoute::Native => ("native", None, None),
+            ReplyRoute::Refused(fallback) => ("native", Some("refused"), Some(fallback)),
+            ReplyRoute::Relayed(fallback) => ("bun", Some("relayed"), fallback),
+            ReplyRoute::UpstreamFailed(fallback) => ("bun", Some("upstream_failed"), fallback),
+        };
         let ms = elapsed.as_secs_f64() * 1000.0;
         let level = if c.outcome == "ok" {
             "info"

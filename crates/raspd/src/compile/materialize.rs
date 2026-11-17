@@ -212,9 +212,11 @@ pub(super) fn materialize_and_emit(
             let emitted = emit_codex::emit_codex(
                 &plan,
                 release,
-                &bundle_root,
-                &codex_home,
-                system_prompt_path,
+                emit_codex::CodexArtifacts {
+                    bundle_root: &bundle_root,
+                    home: &codex_home,
+                    system_prompt_path,
+                },
                 &mut warnings,
                 tool_env,
                 path_prepend,
