@@ -14,6 +14,14 @@ export interface SubmissionOrigin {
 
 interface SubmissionRequestBase {
   invocationId: InvocationId
+  /**
+   * Caller-minted submission identity (T-13689). When present the broker uses
+   * it instead of minting one, and a repeat with the same id and request on the
+   * same invocation returns the original admission reply without creating a
+   * second submission; the same id with a different request is refused as
+   * invalid params. Absent, the broker mints the id as before.
+   */
+  submissionId?: string | undefined
   origin: SubmissionOrigin
   body: string
   responseFormat?: InvocationResponseFormat | undefined

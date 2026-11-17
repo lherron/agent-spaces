@@ -538,10 +538,12 @@ describe('codex-tui queue attribution', () => {
     }
   })
 
-  test('keeps a guarded broker turn owned when a human steers inside it', async () => {
+  test('keeps a guarded broker turn owned when a human steers inside it and holds a broker steer', async () => {
     const rpc = new FakeCodexRpc()
     let queuedInputId = ''
+    let steerRequests = 0
     rpc.onRequest = async (method, params) => {
+      if (method === 'turn/steer' || method === 'thread/turns/list') steerRequests += 1
       if (method === 'initialize') return {}
       if (method === 'hooks/list') return { data: [] }
       if (method === 'thread/start') return { thread: { id: 'thread_test' } }
@@ -580,13 +582,20 @@ describe('codex-tui queue attribution', () => {
         () => run.events.some((event) => event.type === 'submission.executed'),
         'guarded own turn should be attributed'
       )
+      // A guarded turn is never steered into: the broker admits the steer and
+      // holds it for the turn's terminal (T-13689). Withdrawing it while held
+      // is definite, which keeps this test about the human's steer.
+      const held = await run.broker.steer({
+        invocationId: invocationIdFrom('inv_codex_tui_guarded_own'),
+        origin,
+        body: 'broker steer is held, not injected',
+      })
+      expect(held).toMatchObject({ admission: 'admitted' })
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(steerRequests).toBe(0)
       expect(
-        await run.broker.steer({
-          invocationId: invocationIdFrom('inv_codex_tui_guarded_own'),
-          origin,
-          body: 'broker steer must be refused',
-        })
-      ).toMatchObject({ admission: 'rejected', reason: 'guarded' })
+        await run.broker.withdraw({ submissionId: held.submissionId, reason: 'test' })
+      ).toEqual({ outcome: 'withdrawn' })
       rpc.emit('item/started', {
         threadId: 'thread_test',
         turnId: 'turn_guarded_own',

@@ -104,7 +104,7 @@ Ruled by Lance 2026-11-17 (T-13668): **callers never choose a door from seat sta
 | **Handed over, turn not started** | Waits for that turn, then injects. | T-13687 |
 | **Invocation starting** | Held until the invocation is ready, then idle or busy as above. | T-13689 |
 | **Guarded turn** | Never steered into. Waits for the turn's terminal, then starts its own turn. | T-13689 |
-| **Open permission request** | Held until the request resolves, because injected text must never answer a prompt. | T-13689 |
+| **Open permission request or question** (a `permission.requested` without its resolution, or an open `AskUserQuestion`/`request_user_input` tool call) | Held until the request resolves, because injected text must never answer a prompt. | T-13689 |
 | **Pane not ready before paste** (Claude `pane_not_quiescent`, `before_paste`) | Nothing was written, so the broker holds and retries until the input box is ready. | T-13689 |
 | **Driver without the steer class** (codex-desktop) | Admitted through that driver's own queue. Until T-13689 ships, HRC downgrades the steer to enqueue at its door (`downgradeReason: steer_not_supported`). | T-13689 |
 | **Cold** (not yet born) | HRC births the runtime and the steer rides the birth turn with the priming. | Live |
@@ -115,7 +115,7 @@ Ruled by Lance 2026-11-17 (T-13668): **callers never choose a door from seat sta
 3. The host's authorization hook denies it. The hook defaults to allow, and mail fails such an envelope plainly.
 4. The harness write itself fails. The evidence is `not_written` before any write, and `possibly_written` after. Recovery after a possible write is unchanged (`agent-spaces.harness-broker-turn-evidence`). After an ambiguous failed `turn/steer` RPC, Codex still re-sends the same submission as an own turn, accepting a possible duplicate rather than a dropped steer. A Claude pane failure after submit is not re-pasted.
 
-Every steer reaches exactly one submission terminal (executed, absorbed, rejected, withdrawn, cancelled or lost). A Codex TUI delivery returns once Codex acknowledges it, and attribution settles the fate later. Attribution never holds the queue (T-13687).
+Every steer reaches exactly one submission terminal (executed, absorbed, rejected, withdrawn, cancelled or lost). The admission reply returns before any hold ends, and no hold or retry emits `input.rejected`. A steer still held when the invocation stops is `cancelled` (`teardown`). Every `submission.*` request takes an optional caller-minted `submissionId`: a repeat with the same id and request returns the first admission reply and creates nothing; the same id with a different request is refused invalid params (T-13689). A Codex TUI delivery returns once Codex acknowledges it, and attribution settles the fate later. Attribution never holds the queue (T-13687).
 
 Explicit doors stay for callers who want their semantics on purpose: **enqueue** (an own turn after the current one, waitable), **invoke** (exclusive; on a seat without the exclusive class HRC admits it through queue), and **preempt** (authority-gated, for holds). `hrc turn` steers by default and enqueues only with an explicit flag. ACP and agent-loop dispatch through HRC `POST /v1/turns`, which starts a guarded turn.
 

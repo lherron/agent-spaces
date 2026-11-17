@@ -29,12 +29,36 @@ import type {
   SubmissionRecord,
   SubmissionRequest,
 } from './invocation-model'
+import { TmuxPaneNotQuiescentError } from './runtime/tmux'
 
 export interface InvocationAdmissionDeps {
   emit: EmitFn
   now: () => Date
   invocations: Map<string, Invocation>
   authorizeSubmission: NonNullable<InvocationManagerOptions['authorizeSubmission']>
+  /** Delay between steer attempts a pane refused before paste. */
+  steerRetryIntervalMs: number
+}
+
+/** Tool calls that put a question to the human; a steer must not answer them. */
+const ASK_TOOL_NAMES = new Set(['AskUserQuestion', 'request_user_input'])
+
+/** States that can never deliver a held steer again. */
+const STEER_CLOSED_STATES = new Set(['stopping', 'exited', 'failed', 'disposed'])
+
+/**
+ * Outcome of one steer attempt. `retry` and `again` are silent: the broker holds
+ * the steer and tries again, and only a `final` failure is reported.
+ */
+type SteerAttempt =
+  | { kind: 'delivered'; started?: { turnId?: TurnId | undefined } | undefined }
+  | { kind: 'retry' }
+  | { kind: 'again' }
+  | { kind: 'final'; error: unknown; evidence: DeliveryEvidence }
+
+/** A pane refusal raised before the first paste: nothing was written, so it can be retried. */
+function paneNotReadyBeforePaste(error: unknown): boolean {
+  return error instanceof TmuxPaneNotQuiescentError && error.phase === 'before_paste'
 }
 
 export type InvocationAdmission = ReturnType<typeof createInvocationAdmission>
@@ -44,7 +68,7 @@ export type InvocationAdmission = ReturnType<typeof createInvocationAdmission>
  * decides whether and when an input reaches the driver.
  */
 export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
-  const { emit, now, invocations, authorizeSubmission } = deps
+  const { emit, now, invocations, authorizeSubmission, steerRetryIntervalMs } = deps
 
   function nextSubmissionId(inv: Invocation): string {
     inv.submissionCounter += 1
@@ -66,12 +90,60 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
     }
   }
 
+  /** Canonical request identity for caller-minted submissionId replay (T-13689). */
+  function submissionFingerprint(admissionClass: SubmissionClass, req: SubmissionRequest): string {
+    const extended = req as SubmissionEnqueueRequest
+    return stableJsonStringify({
+      class: admissionClass,
+      origin: req.origin,
+      body: req.body,
+      responseFormat: normalizeResponseFormat(req.responseFormat) ?? null,
+      freshContext: req.freshContext ?? null,
+      ttlMs: extended.ttlMs ?? null,
+      turnPolicy: extended.turnPolicy ?? null,
+    })
+  }
+
+  /**
+   * Run one public submission's admission at most once per caller-minted id. A
+   * repeat with the same id and request returns the first admission reply and
+   * creates nothing; the same id with a different request is invalid params.
+   */
+  function admitOnce(
+    inv: Invocation,
+    admissionClass: SubmissionClass,
+    req: SubmissionRequest,
+    admit: (record: SubmissionRecord) => Promise<SubmissionResponse>
+  ): Promise<SubmissionResponse> {
+    const fingerprint = submissionFingerprint(admissionClass, req)
+    if (req.submissionId !== undefined) {
+      const existing = inv.submissions.get(req.submissionId)
+      if (existing !== undefined) {
+        if (existing.requestFingerprint === fingerprint && existing.admissionReply !== undefined) {
+          return existing.admissionReply
+        }
+        return Promise.reject(
+          new BrokerError(
+            -32602 as BrokerErrorCode,
+            `submissionId ${req.submissionId} was already used for a different request`,
+            { invocationId: inv.invocationId, submissionId: req.submissionId }
+          )
+        )
+      }
+    }
+    const record = registerSubmission(inv, admissionClass, req)
+    record.requestFingerprint = fingerprint
+    const reply = admit(record)
+    record.admissionReply = reply
+    return reply
+  }
+
   function registerSubmission(
     inv: Invocation,
     admissionClass: SubmissionClass,
     req: SubmissionRequest
   ): SubmissionRecord {
-    const submissionId = nextSubmissionId(inv)
+    const submissionId = req.submissionId ?? nextSubmissionId(inv)
     const record: SubmissionRecord = {
       submissionId,
       class: admissionClass,
@@ -147,31 +219,30 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
     record: SubmissionRecord,
     req: SubmissionRequest
   ): Promise<SubmissionResponse | undefined> {
-    if (!inv.capabilities.admission.classes.includes(record.class)) {
+    // A steer to a driver without a steer door goes through its own queue
+    // (T-13689), so the class that must be supported is the routed one.
+    const routedClass =
+      record.class === 'steer' && steerRoutesThroughQueue(inv) ? 'queue' : record.class
+    if (!inv.capabilities.admission.classes.includes(routedClass)) {
       return rejectSubmission(inv, record, 'capability', `unsupported:${record.class}`)
     }
-    const driverRejection = inv.driver.admissionRejectionReason?.(record.class)
+    const driverRejection = inv.driver.admissionRejectionReason?.(routedClass)
     if (driverRejection !== undefined) {
       return rejectSubmission(inv, record, 'capability', driverRejection)
     }
     if (req.freshContext === true) {
       return rejectSubmission(inv, record, 'capability', 'fresh-context-unsupported')
     }
-    if (inv.state !== 'ready' && inv.state !== 'turn_active') {
+    // A steer to a starting invocation is admitted and held until it is ready
+    // (broker-steer-one-door); only a closing or closed one refuses it.
+    const steerHoldable = record.class === 'steer' && inv.state === 'starting'
+    if (inv.state !== 'ready' && inv.state !== 'turn_active' && !steerHoldable) {
       return rejectSubmission(inv, record, 'state', `invalid-state:${inv.state}`)
     }
-    // A steer exists to land mid-turn: to a busy harness (a delivery awaiting
-    // its turn, or a turn still unattributed) it is injected immediately, never
-    // held or refused (T-08527). Exclusive is not best effort and stays busy.
+    // A steer is never refused by a busy or guarded seat: the broker holds it
+    // (T-08527, T-13687 C, T-13689). Exclusive is not best effort and stays busy.
     if (inv.pendingOwnTurnSubmissionId !== undefined && record.class === 'exclusive') {
       return rejectSubmission(inv, record, 'state', 'busy')
-    }
-    if (
-      record.class === 'steer' &&
-      inv.state === 'turn_active' &&
-      inv.currentTurnPolicy === 'guarded'
-    ) {
-      return rejectSubmission(inv, record, 'policy', 'guarded')
     }
     const authorized = await authorizeSubmission({
       invocationId: inv.invocationId,
@@ -284,6 +355,16 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
       const position = inv.brokerQueue.findIndex(
         (item) => item.record.submissionId === record.submissionId
       )
+      if (position < 0 && inv.heldSteers?.has(record) === true) {
+        // A held steer was never handed over: withdrawing it is definite.
+        inv.heldSteers.delete(record)
+        emit(inv, 'submission.withdrawn', {
+          submissionId: record.submissionId,
+          reason: req.reason,
+        })
+        withdrawn = true
+        continue
+      }
       if (position < 0) {
         if (inv.driver.cancelInput !== undefined) {
           const result = await inv.driver.cancelInput(record.submissionId as InputId, req.reason)
@@ -370,7 +451,7 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
         index += 1
         continue
       }
-      const reason = inv.driver.admissionRejectionReason?.(item.record.class)
+      const reason = inv.driver.admissionRejectionReason?.(item.class)
       if (reason === undefined) {
         index += 1
         continue
@@ -384,8 +465,7 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
   function hasDriverBlockedHeldSubmission(inv: Invocation): boolean {
     return inv.brokerQueue.some(
       (item) =>
-        !item.record.terminal &&
-        inv.driver.admissionRejectionReason?.(item.record.class) !== undefined
+        !item.record.terminal && inv.driver.admissionRejectionReason?.(item.class) !== undefined
     )
   }
 
@@ -681,12 +761,38 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
     return result
   }
 
+  /** Whether this driver lacks a steer door and so takes steers through its queue. */
+  function steerRoutesThroughQueue(inv: Invocation): boolean {
+    const classes = inv.capabilities.admission.classes
+    return (
+      classes.includes('queue') &&
+      (!classes.includes('steer') || inv.driver.applySteerNow === undefined)
+    )
+  }
+
+  /** Serialize steer deliveries per invocation: one pane write at a time, FIFO. */
+  function withSteerLock<T>(inv: Invocation, work: () => Promise<T>): Promise<T> {
+    const previous = inv.steerPromise ?? Promise.resolve()
+    const run = previous.catch(() => undefined).then(work)
+    const tail = run.then(
+      () => undefined,
+      () => undefined
+    )
+    inv.steerPromise = tail
+    return run.finally(() => {
+      if (inv.steerPromise === tail) inv.steerPromise = undefined
+    })
+  }
+
+  /**
+   * Legacy invocation.input busy steer: one attempt, reported immediately.
+   * The broker-held retries of submission.steer do not apply here.
+   */
   async function attemptSteerAndEmit(
     inv: Invocation,
     input: InvocationInputWithId
   ): Promise<InvocationInputResponse> {
-    const applySteerNow = inv.driver.applySteerNow
-    if (applySteerNow === undefined) {
+    if (inv.driver.applySteerNow === undefined) {
       // Reachable from the public steer RPC: admission.classes is a driver
       // DECLARATION and is not cross-checked against applySteerNow presence
       // (only input.busyPolicies is), so a driver can admit a steer it cannot
@@ -697,87 +803,191 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
       if (refused !== undefined) refused.deliveryEvidence = 'not_written'
       return rejectQueueInput(inv, input.inputId, REASON_STEER_NOT_SUPPORTED, 'not_written')
     }
-
-    // Serialize pane writes only. This does not create a broker-owned pending
-    // turn, and it never retroactively upgrades the request to `started`.
-    const previous = inv.steerPromise ?? Promise.resolve()
-    const run = previous
-      .catch(() => undefined)
-      .then(async (): Promise<InvocationInputResponse> => {
-        // Whether any steer attempt may already have written the body.
-        let possiblyWritten = false
-        for (;;) {
-          try {
-            await applySteerNow.call(inv.driver, input)
-          } catch (err) {
-            let failure = err
-            if (steerRequiresOwnTurnOf(err)) {
-              if (deliveryEvidenceOf(err) !== 'not_written') possiblyWritten = true
-              // T-13687 C: another submission holds the own-turn slot and the
-              // harness has no turn yet. A steer is never refused busy and
-              // never starts a second own turn: it waits for that turn to start
-              // (or the slot to release), then injects again.
-              if (ownTurnSlotHeldByOther(inv, input.inputId)) {
-                if (await waitForPendingWindowChange(inv)) continue
-                failure = withDeliveryEvidence(
-                  new BrokerError(
-                    BrokerErrorCode.InvalidInvocationState,
-                    'Invocation closed while the steer waited for the pending turn to start'
-                  ),
-                  possiblyWritten ? 'possibly_written' : 'not_written'
-                )
-              } else {
-                try {
-                  const result = await applyAndEmit(inv, input)
-                  return {
-                    inputId: input.inputId,
-                    accepted: true,
-                    disposition: 'started',
-                    turnId: result.turnId,
-                  }
-                } catch (startError) {
-                  failure = startError
-                }
+    return withSteerLock(inv, async () => {
+      const progress = { possiblyWritten: false }
+      for (;;) {
+        const attempt = await attemptSteerOnce(inv, input, progress, false)
+        if (attempt.kind === 'again') continue
+        if (attempt.kind === 'delivered') {
+          return attempt.started !== undefined
+            ? {
+                inputId: input.inputId,
+                accepted: true,
+                disposition: 'started',
+                turnId: attempt.started.turnId,
               }
-            }
-            // The driver says what its failure proves about the body. A refusal
-            // raised before the first paste is a real no-write; everything from
-            // the paste onward may have landed.
-            const evidence = deliveryEvidenceOf(failure) ?? 'possibly_written'
-            const failed = inv.submissions.get(input.inputId)
-            if (failed !== undefined) failed.deliveryEvidence = evidence
-            return rejectQueueInput(
-              inv,
-              input.inputId,
-              String(failure instanceof Error ? failure.message : failure),
-              evidence
-            )
-          }
+            : { inputId: input.inputId, accepted: true, disposition: 'attempted_steer' }
+        }
+        const failure =
+          attempt.kind === 'final'
+            ? attempt
+            : {
+                error: new TmuxPaneNotQuiescentError('before_paste'),
+                evidence: 'not_written' as const,
+              }
+        const failed = inv.submissions.get(input.inputId)
+        if (failed !== undefined) failed.deliveryEvidence = failure.evidence
+        return rejectQueueInput(
+          inv,
+          input.inputId,
+          String(failure.error instanceof Error ? failure.error.message : failure.error),
+          failure.evidence
+        )
+      }
+    })
+  }
 
-          emit(
-            inv,
-            'input.accepted',
-            { inputId: input.inputId, disposition: 'attempted_steer' },
-            { inputId: input.inputId }
-          )
-          return {
-            inputId: input.inputId,
-            accepted: true,
-            disposition: 'attempted_steer',
+  /**
+   * Deliver an admitted submission.steer (agent-spaces.broker-steer-one-door).
+   * The admission reply has already gone out; from here the broker holds the
+   * steer while the invocation is starting, a guarded turn runs or a prompt is
+   * open, retries a pane that refused before paste, and then starts a turn
+   * (idle) or injects into the live one (busy). Holds and retries are silent:
+   * only the final attempt is reported, and the steer reaches one terminal.
+   */
+  function deliverSteer(inv: Invocation, record: SubmissionRecord): Promise<void> {
+    // Held from admission, so a steer still queued behind an earlier one is
+    // cancelled, not lost, if the invocation ends first.
+    inv.heldSteers ??= new Set()
+    const held = inv.heldSteers
+    held.add(record)
+    return withSteerLock(inv, async () => {
+      const progress = { possiblyWritten: false }
+      try {
+        for (;;) {
+          if (record.terminal) return
+          if (!progress.possiblyWritten) held.add(record)
+          const open = await waitForSteerGate(inv)
+          if (record.terminal) return
+          if (!open) {
+            finishSteer(inv, record, closedWhileHeld(), progress.possiblyWritten)
+            return
+          }
+          held.delete(record)
+          const attempt = await attemptSteerOnce(inv, record.input, progress, true)
+          if (attempt.kind === 'delivered') return
+          if (attempt.kind === 'final') {
+            // Teardown may already have settled it while the attempt waited.
+            if (!record.terminal) {
+              rejectAdmittedExecution(inv, record, attempt.error, {
+                deliveryEvidence: attempt.evidence,
+              })
+            }
+            return
+          }
+          if (attempt.kind === 'retry') {
+            if (!progress.possiblyWritten) held.add(record)
+            if (!(await waitForSteerRetry(inv))) {
+              if (!record.terminal) {
+                finishSteer(inv, record, closedWhileHeld(), progress.possiblyWritten)
+              }
+              return
+            }
           }
         }
-      })
-    const tail = run.then(
-      () => undefined,
-      () => undefined
-    )
-    inv.steerPromise = tail
-    try {
-      return await run
-    } finally {
-      if (inv.steerPromise === tail) {
-        inv.steerPromise = undefined
+      } finally {
+        held.delete(record)
       }
+    })
+  }
+
+  function closedWhileHeld(): BrokerError {
+    return new BrokerError(
+      BrokerErrorCode.InvalidInvocationState,
+      'Invocation closed while the broker held the steer'
+    )
+  }
+
+  function finishSteer(
+    inv: Invocation,
+    record: SubmissionRecord,
+    error: unknown,
+    possiblyWritten: boolean
+  ): void {
+    rejectAdmittedExecution(inv, record, error, {
+      deliveryEvidence: possiblyWritten ? 'possibly_written' : 'not_written',
+    })
+  }
+
+  /**
+   * One steer attempt through whichever path the seat's current state calls
+   * for. `allowIdleStart` lets an idle seat start the steer's own turn; the
+   * legacy busy path never does.
+   */
+  async function attemptSteerOnce(
+    inv: Invocation,
+    input: InvocationInputWithId,
+    progress: { possiblyWritten: boolean },
+    allowIdleStart: boolean
+  ): Promise<SteerAttempt> {
+    const idle =
+      allowIdleStart &&
+      inv.state === 'ready' &&
+      inv.pendingOwnTurnSubmissionId === undefined &&
+      inv.driver.resolvesSteerAtActuation !== true &&
+      inv.driver.steerNeverStartsTurn !== true
+    if (idle) return startSteerTurn(inv, input)
+    if (inv.driver.applySteerNow === undefined) {
+      return {
+        kind: 'final',
+        error: new Error(REASON_STEER_NOT_SUPPORTED),
+        evidence: 'not_written',
+      }
+    }
+    try {
+      await inv.driver.applySteerNow(input)
+    } catch (err) {
+      if (paneNotReadyBeforePaste(err)) return { kind: 'retry' }
+      let failure = err
+      if (steerRequiresOwnTurnOf(err)) {
+        if (deliveryEvidenceOf(err) !== 'not_written') progress.possiblyWritten = true
+        // T-13687 C: another submission holds the own-turn slot and the
+        // harness has no turn yet. A steer is never refused busy and never
+        // starts a second own turn: it waits for that turn to start (or the
+        // slot to release), then goes back through the gate, since the turn
+        // that starts may be guarded.
+        if (ownTurnSlotHeldByOther(inv, input.inputId)) {
+          if (await waitForPendingWindowChange(inv)) return { kind: 'again' }
+          failure = withDeliveryEvidence(
+            new BrokerError(
+              BrokerErrorCode.InvalidInvocationState,
+              'Invocation closed while the steer waited for the pending turn to start'
+            ),
+            progress.possiblyWritten ? 'possibly_written' : 'not_written'
+          )
+        } else {
+          return startSteerTurn(inv, input)
+        }
+      }
+      // The driver says what its failure proves about the body. A refusal
+      // raised before the first paste is a real no-write; everything from the
+      // paste onward may have landed.
+      return {
+        kind: 'final',
+        error: failure,
+        evidence: deliveryEvidenceOf(failure) ?? 'possibly_written',
+      }
+    }
+    emit(
+      inv,
+      'input.accepted',
+      { inputId: input.inputId, disposition: 'attempted_steer' },
+      { inputId: input.inputId }
+    )
+    return { kind: 'delivered' }
+  }
+
+  /** Start the steer's own turn: an idle seat, or a driver's own-turn fallback. */
+  async function startSteerTurn(
+    inv: Invocation,
+    input: InvocationInputWithId
+  ): Promise<SteerAttempt> {
+    try {
+      const result = await applyAndEmit(inv, input)
+      return { kind: 'delivered', started: { turnId: result.turnId } }
+    } catch (error) {
+      if (paneNotReadyBeforePaste(error)) return { kind: 'retry' }
+      return { kind: 'final', error, evidence: deliveryEvidenceOf(error) ?? 'possibly_written' }
     }
   }
 
@@ -791,6 +1001,72 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
     return inv.terminalEmitted || (inv.state !== 'ready' && inv.state !== 'turn_active')
   }
 
+  function steerClosed(inv: Invocation): boolean {
+    return inv.terminalEmitted || STEER_CLOSED_STATES.has(inv.state)
+  }
+
+  /** An open prompt a pasted steer would answer: a permission request or an ask tool. */
+  function promptOpen(inv: Invocation): boolean {
+    if (inv.pendingPermissions.size > 0) return true
+    if ((inv.openPermissionRequests?.size ?? 0) > 0) return true
+    for (const call of inv.startedToolCalls.values()) {
+      if (ASK_TOOL_NAMES.has(call.name)) return true
+    }
+    return false
+  }
+
+  /** Whether a held steer may be attempted now. */
+  function steerGateOpen(inv: Invocation): boolean {
+    if (inv.state === 'starting' || inv.startSettled !== true) return false
+    if (promptOpen(inv)) return false
+    return !(inv.state === 'turn_active' && inv.currentTurnPolicy === 'guarded')
+  }
+
+  /** Register a change-driven watcher until `settle` returns a verdict. */
+  function watchSteerState(
+    inv: Invocation,
+    settle: (event: { type: string }) => boolean | undefined,
+    timeoutMs?: number
+  ): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
+      inv.steerWatchers ??= new Set()
+      const watchers = inv.steerWatchers
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const finish = (outcome: boolean): void => {
+        watchers.delete(watcher)
+        if (timer !== undefined) clearTimeout(timer)
+        resolve(outcome)
+      }
+      const watcher = (event: { type: string }): void => {
+        const outcome = settle(event)
+        if (outcome !== undefined) finish(outcome)
+      }
+      watchers.add(watcher)
+      if (timeoutMs !== undefined) timer = setTimeout(() => finish(true), timeoutMs)
+    })
+  }
+
+  /** Resolve true once the steer gate opens, false once the invocation closes. */
+  function waitForSteerGate(inv: Invocation): Promise<boolean> {
+    if (steerClosed(inv)) return Promise.resolve(false)
+    if (steerGateOpen(inv)) return Promise.resolve(true)
+    return watchSteerState(inv, () =>
+      steerClosed(inv) ? false : steerGateOpen(inv) ? true : undefined
+    )
+  }
+
+  /** Wait out one pane retry interval; false if the invocation closes first. */
+  function waitForSteerRetry(inv: Invocation): Promise<boolean> {
+    if (steerClosed(inv)) return Promise.resolve(false)
+    return watchSteerState(inv, () => (steerClosed(inv) ? false : undefined), steerRetryIntervalMs)
+  }
+
+  /** Tell held steers that start() settled; no event marks that moment. */
+  function releaseStartHeldSteers(inv: Invocation): void {
+    inv.startSettled = true
+    for (const watcher of [...(inv.steerWatchers ?? [])]) watcher({ type: 'broker.start.settled' })
+  }
+
   /**
    * Resolve true at the next turn start or own-turn slot change, false once
    * the invocation stops accepting input. Change-driven: never a timer, and a
@@ -799,20 +1075,10 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
   function waitForPendingWindowChange(inv: Invocation): Promise<boolean> {
     if (invocationClosed(inv)) return Promise.resolve(false)
     const held = inv.pendingOwnTurnSubmissionId
-    return new Promise<boolean>((resolve) => {
-      const watchers = inv.pendingWindowWatchers ?? new Set()
-      inv.pendingWindowWatchers = watchers
-      const watcher = (event: { type: string }): void => {
-        let outcome: boolean | undefined
-        if (invocationClosed(inv)) outcome = false
-        else if (event.type === 'turn.started' || inv.pendingOwnTurnSubmissionId !== held) {
-          outcome = true
-        }
-        if (outcome === undefined) return
-        watchers.delete(watcher)
-        resolve(outcome)
-      }
-      watchers.add(watcher)
+    return watchSteerState(inv, (event) => {
+      if (invocationClosed(inv)) return false
+      if (event.type === 'turn.started' || inv.pendingOwnTurnSubmissionId !== held) return true
+      return undefined
     })
   }
 
@@ -885,6 +1151,12 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
         reason: 'teardown',
       })
     }
+    // Steers the broker held and never handed to the driver (T-13689).
+    for (const record of [...(inv.heldSteers ?? [])]) {
+      inv.heldSteers?.delete(record)
+      if (record.terminal) continue
+      emit(inv, 'submission.cancelled', { submissionId: record.submissionId, reason: 'teardown' })
+    }
   }
 
   /**
@@ -943,7 +1215,7 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
   }
 
   return {
-    registerSubmission,
+    admitOnce,
     registerLegacySubmission,
     rejectSubmission,
     checkAdmission,
@@ -959,6 +1231,9 @@ export function createInvocationAdmission(deps: InvocationAdmissionDeps) {
     scheduleDrain,
     applyAndEmit,
     attemptSteerAndEmit,
+    deliverSteer,
+    steerRoutesThroughQueue,
+    releaseStartHeldSteers,
     rejectQueueInput,
     evictQueue,
     settleUndisposedSubmissions,

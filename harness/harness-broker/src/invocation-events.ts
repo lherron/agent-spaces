@@ -360,7 +360,7 @@ export function createInvocationEvents(deps: InvocationEventsDeps) {
 
   /** Tell steers waiting out a pending own-turn window about this event (T-13687 C). */
   function notifyPendingWindowWatchers(inv: Invocation, event: InvocationEventEnvelope): void {
-    for (const watcher of [...(inv.pendingWindowWatchers ?? [])]) watcher(event)
+    for (const watcher of [...(inv.steerWatchers ?? [])]) watcher(event)
   }
 
   function emitEvent<K extends InvocationEventType>(
@@ -539,6 +539,16 @@ export function createInvocationEvents(deps: InvocationEventsDeps) {
       }
     } else if (event.type === 'tool.call.completed' || event.type === 'tool.call.failed') {
       inv.startedToolCalls.delete(event.payload.toolCallId)
+    }
+    // Open prompts hold steers (T-13689): injected text would answer them.
+    if (event.type === 'permission.requested') {
+      inv.openPermissionRequests ??= new Set()
+      inv.openPermissionRequests.add(event.payload.permissionRequestId)
+    } else if (event.type === 'permission.resolved') {
+      inv.openPermissionRequests?.delete(event.payload.permissionRequestId)
+    } else if (TURN_TERMINAL_TYPES.has(event.type)) {
+      // A prompt never outlives its turn, even when no resolution was reported.
+      inv.openPermissionRequests?.clear()
     }
     // Deliver BEFORE projecting state: applyEventState can synchronously emit
     // follow-on events (turn terminal → drain dequeues input.accepted /

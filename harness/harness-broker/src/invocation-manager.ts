@@ -41,6 +41,7 @@ import { BrokerError } from './errors'
 import { createInvocationAdmission } from './invocation-admission'
 import {
   DEFAULT_MAX_INPUT_QUEUE_DEPTH,
+  DEFAULT_STEER_RETRY_INTERVAL_MS,
   REASON_UNSUPPORTED_FINAL_RESPONSE,
   TERMINAL_STATES,
   assertLifecyclePolicySupported,
@@ -111,7 +112,13 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   // Admission and emission are mutually recursive (a drain emits; a turn
   // terminal drains), so admission binds emit late through this forwarder.
   const emit: EmitFn = (inv, type, payload, extra) => events.emit(inv, type, payload, extra)
-  const admission = createInvocationAdmission({ emit, now, invocations, authorizeSubmission })
+  const admission = createInvocationAdmission({
+    emit,
+    now,
+    invocations,
+    authorizeSubmission,
+    steerRetryIntervalMs: options.steerRetryIntervalMs ?? DEFAULT_STEER_RETRY_INTERVAL_MS,
+  })
   const events = createInvocationEvents({ sequencer, onEvent, admission })
   const { brokerProvenance, emitEvent, emitTerminal } = events
   const {
@@ -122,6 +129,7 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
     applyAndEmit,
     rejectAdmittedExecution,
     resolveInputId,
+    releaseStartHeldSteers,
   } = admission
   const { brokerRequestPermission, permissionRespond } = createInvocationPermissions({
     emit,
@@ -344,10 +352,15 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
             await applyAndEmit(inv, inputWithId)
           } catch (error) {
             rejectAdmittedExecution(inv, submission, error)
+            releaseStartHeldSteers(inv)
             throw error
           }
         }
       }
+      // Steers that arrived while starting run now, behind the launch input
+      // (T-13689); a queue-routed one waits on the admission drain.
+      releaseStartHeldSteers(inv)
+      scheduleAdmissionDrain(inv)
 
       return {
         invocationId,

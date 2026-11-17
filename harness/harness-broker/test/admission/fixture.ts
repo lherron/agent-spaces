@@ -21,7 +21,7 @@ export const origin: SubmissionOrigin = {
 export async function setup(
   rawInvocationId: string,
   options: Parameters<typeof createTestDriver>[0] = {},
-  brokerOptions: { authorizeSubmission?: () => boolean } = {}
+  brokerOptions: { authorizeSubmission?: () => boolean; steerRetryIntervalMs?: number } = {}
 ) {
   const invocationId = invocationIdFrom(rawInvocationId)
   const events: InvocationEventEnvelope[] = []
@@ -33,6 +33,7 @@ export async function setup(
     drivers: [driver],
     onEvent: (event) => events.push(event),
     authorizeSubmission: brokerOptions.authorizeSubmission,
+    steerRetryIntervalMs: brokerOptions.steerRetryIntervalMs,
   })
   await broker.start({ spec: testDriverSpec(invocationId) })
   return { broker, controller, driver, events, invocationId }

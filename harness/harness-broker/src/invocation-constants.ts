@@ -25,6 +25,8 @@ export const REASON_INVOCATION_TERMINATED = 'invocation_terminated'
 export const REASON_INVOCATION_STOPPING = 'invocation_stopping'
 
 export const DEFAULT_MAX_INPUT_QUEUE_DEPTH = 64
+/** Delay between attempts of a steer a pane refused before paste (T-13689). */
+export const DEFAULT_STEER_RETRY_INTERVAL_MS = 1_000
 
 /** Fallback bound for a broker-owned permission deadline when the policy omits one. */
 export const DEFAULT_PERMISSION_TIMEOUT_MS = 1000

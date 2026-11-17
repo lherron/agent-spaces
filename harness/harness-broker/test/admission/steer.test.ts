@@ -3,32 +3,35 @@ import { inputIdFrom } from '../ids'
 import { eventsFor, eventsForSubmission, flush, origin, setup } from './fixture'
 
 describe('broker admission API: steer semantics', () => {
-  test('a pre-driver steer refusal is terminally rejected as not_written', async () => {
+  test('a driver that declares steer but cannot write one takes it through its queue', async () => {
     // admission.classes is a deliberate driver DECLARATION and is not
-    // cross-checked against applySteerNow presence (only input.busyPolicies is),
-    // so a driver can admit a steer it cannot execute. That refusal happens
-    // before any driver attempt: it must stay a truthful terminal rejection and
-    // must not be mistaken for a possible write.
-    const { broker, events, invocationId } = await setup('inv_admission_steer_unsupported', {
-      supportsSteer: false,
-      admissionClasses: ['steer', 'queue', 'exclusive'],
-    })
-    // A turn must be active, otherwise the steer is applied as a normal input.
+    // cross-checked against applySteerNow presence. A steer is never refused
+    // for capability on a live seat (T-13689): it routes through the queue.
+    const { broker, controller, events, invocationId } = await setup(
+      'inv_admission_steer_unsupported',
+      {
+        supportsSteer: false,
+        admissionClasses: ['steer', 'queue', 'exclusive'],
+      }
+    )
     await broker.invoke({ invocationId, origin, body: 'active' })
     await flush()
     expect((await broker.seatProbe({ invocationId })).seat.state).toBe('turn-active')
 
-    const refused = await broker.steer({ invocationId, origin, body: 'cannot be written' })
+    const routed = await broker.steer({ invocationId, origin, body: 'through the queue' })
     await flush()
-
+    expect(routed.admission).toBe('admitted')
+    expect(eventsForSubmission(events, 'queue.enqueued', routed.submissionId)).toHaveLength(1)
     expect(
       eventsFor(events, 'input.rejected').filter(
-        (event) => (event.payload as { inputId?: string }).inputId === refused.submissionId
+        (event) => (event.payload as { inputId?: string }).inputId === routed.submissionId
       )
-    ).toMatchObject([{ payload: { deliveryEvidence: 'not_written' } }])
-    // Nothing reached a driver, so the submission is DISPOSED, not left
-    // dangling as a possible write.
-    expect(eventsForSubmission(events, 'submission.rejected', refused.submissionId)).toHaveLength(1)
+    ).toHaveLength(0)
+
+    controller.completeActiveTurn()
+    await flush()
+    expect(controller.inputs.at(-1)?.inputId as string | undefined).toBe(routed.submissionId)
+    expect(eventsForSubmission(events, 'submission.executed', routed.submissionId)).toHaveLength(1)
   })
 
   test('an idle steer the driver refuses before its first write reports not_written on input.rejected', async () => {
@@ -81,7 +84,7 @@ describe('broker admission API: steer semantics', () => {
     })
   })
 
-  test('steer stays pending until evidence on open turns and is rejected by guarded policy', async () => {
+  test('steer stays pending until evidence on open turns and waits out a guarded turn', async () => {
     const open = await setup('inv_admission_steer_open')
     const started = await open.broker.invoke({
       invocationId: open.invocationId,
@@ -122,15 +125,19 @@ describe('broker admission API: steer semantics', () => {
       turnPolicy: 'guarded',
     })
     await flush()
-    const rejected = await guarded.broker.steer({
+    const held = await guarded.broker.steer({
       invocationId: guarded.invocationId,
       origin,
       body: 'do not join',
     })
-    expect(rejected).toMatchObject({ admission: 'rejected', reason: 'guarded' })
-    expect(eventsFor(guarded.events, 'admission.rejected').at(-1)?.payload).toMatchObject({
-      layer: 'policy',
-    })
+    await flush()
+    // T-13689: admitted and held; a guarded turn is never steered into.
+    expect(held).toMatchObject({ admission: 'admitted' })
+    expect(eventsFor(guarded.events, 'admission.rejected')).toHaveLength(0)
+    expect(guarded.controller.steeredInputs).toHaveLength(0)
+    guarded.controller.completeActiveTurn()
+    await flush()
+    expect(guarded.controller.inputs.at(-1)?.inputId as string | undefined).toBe(held.submissionId)
   })
 
   test.each(['ack', 'asserted', null] as const)(

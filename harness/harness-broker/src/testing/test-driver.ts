@@ -103,6 +103,8 @@ export interface TestDriverOptions {
   nativeSourceKind?: Driver['nativeSourceKind'] | undefined
   kind?: string | undefined
   beforeApplyInput?: ((input: InvocationInput) => Promise<void>) | undefined
+  /** Runs before a steer is recorded; throwing models a driver's steer refusal. */
+  beforeApplySteer?: ((input: InvocationInput) => Promise<void>) | undefined
   onStart?: ((ctx: DriverContext) => void | Promise<void>) | undefined
 }
 
@@ -457,6 +459,7 @@ export function createTestDriver(options: TestDriverOptions = {}): TestDriverHan
     driver.applySteerNow = async (input: InvocationInput): Promise<void> => {
       const inputId = input.inputId ?? (`input_test_steer_${steeredInputs.length + 1}` as InputId)
       const resolved = { ...input, inputId }
+      await options.beforeApplySteer?.(resolved)
       steeredInputs.push(resolved)
     }
   }

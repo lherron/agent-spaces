@@ -118,6 +118,8 @@ export interface BrokerOptions {
     | ((params: PermissionRequestParams) => Promise<PermissionDecision>)
     | undefined
   maxInputQueueDepth?: number | undefined
+  /** Delay between steer attempts a pane refused before paste. Defaults to 1 s. */
+  steerRetryIntervalMs?: number | undefined
   /**
    * Directory the durable ledger lives in. The raw ingress journal and the
    * disposition index live beside it (§7.1, §8.1). Absent keeps capture
@@ -307,6 +309,9 @@ export function createBroker(options: BrokerOptions): Broker {
     getClientCapabilities: () => clientCapabilities,
     onPermissionRequest: options.onPermissionRequest,
     maxInputQueueDepth: options.maxInputQueueDepth,
+    ...(options.steerRetryIntervalMs !== undefined
+      ? { steerRetryIntervalMs: options.steerRetryIntervalMs }
+      : {}),
     now,
     ...(options.captureDir !== undefined ? { captureDir: options.captureDir } : {}),
     ...(options.logWarn !== undefined ? { logWarn: options.logWarn } : {}),

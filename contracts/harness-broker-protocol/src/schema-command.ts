@@ -233,6 +233,7 @@ function validateSubmissionParams(
 ): void {
   const allowed = new Set([
     'invocationId',
+    'submissionId',
     'origin',
     'body',
     'responseFormat',
@@ -246,6 +247,10 @@ function validateSubmissionParams(
     }
   }
   requireString(params['invocationId'], 'params.invocationId', issues)
+  optionalString(params['submissionId'], 'params.submissionId', issues)
+  if (typeof params['submissionId'] === 'string' && params['submissionId'].length === 0) {
+    issues.push(makeIssue('params.submissionId', 'out_of_range', 'submissionId must be non-empty'))
+  }
   const origin = asRecord(params['origin'])
   if (!origin) {
     issues.push(makeIssue('params.origin', 'required', 'origin is required'))

@@ -74,7 +74,7 @@ export function createInvocationSubmissions(
 ): InvocationSubmissionMethods {
   const { emit, requireInvocation, maxQueueDepth, isOperator, authorizeQueueJump } = deps
   const {
-    registerSubmission,
+    admitOnce,
     registerLegacySubmission,
     rejectSubmission,
     checkAdmission,
@@ -89,6 +89,8 @@ export function createInvocationSubmissions(
     maybeRequestPreemptInterrupt,
     applyAndEmit,
     attemptSteerAndEmit,
+    deliverSteer,
+    steerRoutesThroughQueue,
     rejectQueueInput,
     resolveInputId,
     fingerprintInput,
@@ -98,73 +100,65 @@ export function createInvocationSubmissions(
   return {
     async steer(req: SubmissionSteerRequest): Promise<SubmissionResponse> {
       const inv = requireInvocation(req.invocationId)
-      const record = registerSubmission(inv, 'steer', req)
-      const rejection = await checkAdmission(inv, record, req)
-      if (rejection !== undefined) return rejection
-      const response = admitSubmission(inv, record)
-      if (
-        inv.state === 'ready' &&
-        inv.pendingOwnTurnSubmissionId === undefined &&
-        inv.driver.resolvesSteerAtActuation !== true &&
-        inv.driver.steerNeverStartsTurn !== true
-      ) {
-        void applyAndEmit(inv, record.input).catch((error) =>
-          rejectAdmittedExecution(inv, record, error)
-        )
-      } else {
-        void attemptSteerAndEmit(inv, record.input).then((result) => {
-          if (!result.accepted) {
-            rejectAdmittedExecution(inv, record, result.reason ?? 'steer-failed', {
-              deliveryEvidence: record.deliveryEvidence,
-              inputRejectedEmitted: true,
-            })
-          }
-        })
-      }
-      return response
+      return admitOnce(inv, 'steer', req, async (record) => {
+        const rejection = await checkAdmission(inv, record, req)
+        if (rejection !== undefined) return rejection
+        const response = admitSubmission(inv, record)
+        // The reply goes out now; every hold happens after it (T-13689).
+        if (steerRoutesThroughQueue(inv)) {
+          holdSubmission(inv, record, 'queue')
+          scheduleAdmissionDrain(inv)
+        } else {
+          void deliverSteer(inv, record)
+        }
+        return response
+      })
     },
 
     async enqueue(req: SubmissionEnqueueRequest): Promise<SubmissionResponse> {
       const inv = requireInvocation(req.invocationId)
-      const record = registerSubmission(inv, 'queue', req)
-      const rejection = await checkAdmission(inv, record, req)
-      if (rejection !== undefined) return rejection
-      if (inv.brokerQueue.length >= maxQueueDepth) {
-        return rejectSubmission(inv, record, 'state', REASON_QUEUE_FULL)
-      }
-      const response = admitSubmission(inv, record)
-      holdSubmission(inv, record, 'queue', req.ttlMs)
-      scheduleAdmissionDrain(inv)
-      return response
+      return admitOnce(inv, 'queue', req, async (record) => {
+        const rejection = await checkAdmission(inv, record, req)
+        if (rejection !== undefined) return rejection
+        if (inv.brokerQueue.length >= maxQueueDepth) {
+          return rejectSubmission(inv, record, 'state', REASON_QUEUE_FULL)
+        }
+        const response = admitSubmission(inv, record)
+        holdSubmission(inv, record, 'queue', req.ttlMs)
+        scheduleAdmissionDrain(inv)
+        return response
+      })
     },
 
     async invoke(req: SubmissionInvokeRequest): Promise<SubmissionResponse> {
       const inv = requireInvocation(req.invocationId)
-      const record = registerSubmission(inv, 'exclusive', req)
-      const rejection = await checkAdmission(inv, record, req)
-      if (rejection !== undefined) return rejection
-      if (inv.state === 'turn_active' || inv.pendingOwnTurnSubmissionId !== undefined) {
-        return rejectSubmission(inv, record, 'state', 'busy')
-      }
-      const response = admitSubmission(inv, record)
-      void applyAndEmit(inv, record.input).catch((error) =>
-        rejectAdmittedExecution(inv, record, error)
-      )
-      return response
+      return admitOnce(inv, 'exclusive', req, async (record) => {
+        const rejection = await checkAdmission(inv, record, req)
+        if (rejection !== undefined) return rejection
+        if (inv.state === 'turn_active' || inv.pendingOwnTurnSubmissionId !== undefined) {
+          return rejectSubmission(inv, record, 'state', 'busy')
+        }
+        const response = admitSubmission(inv, record)
+        void applyAndEmit(inv, record.input).catch((error) =>
+          rejectAdmittedExecution(inv, record, error)
+        )
+        return response
+      })
     },
 
     async preempt(req: SubmissionPreemptRequest): Promise<SubmissionResponse> {
       const inv = requireInvocation(req.invocationId)
-      const record = registerSubmission(inv, 'preempt', req)
-      const rejection = await checkAdmission(inv, record, req)
-      if (rejection !== undefined) return rejection
-      const response = admitSubmission(inv, record)
-      holdSubmission(inv, record, 'preempt', req.ttlMs)
-      if (inv.state === 'turn_active') {
-        if (inv.driver.preemptMode === 'quiescence') maybeRequestPreemptInterrupt(inv)
-        else void requestPreemptInterrupt(inv, record)
-      } else scheduleAdmissionDrain(inv)
-      return response
+      return admitOnce(inv, 'preempt', req, async (record) => {
+        const rejection = await checkAdmission(inv, record, req)
+        if (rejection !== undefined) return rejection
+        const response = admitSubmission(inv, record)
+        holdSubmission(inv, record, 'preempt', req.ttlMs)
+        if (inv.state === 'turn_active') {
+          if (inv.driver.preemptMode === 'quiescence') maybeRequestPreemptInterrupt(inv)
+          else void requestPreemptInterrupt(inv, record)
+        } else scheduleAdmissionDrain(inv)
+        return response
+      })
     },
 
     withdraw(req: SubmissionWithdrawRequest): Promise<SubmissionWithdrawResponse> {

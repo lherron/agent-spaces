@@ -93,6 +93,14 @@ export interface SubmissionRecord {
   /** Typed write evidence from the driver's most recent failed delivery. */
   deliveryEvidence?: DeliveryEvidence | undefined
   terminal: boolean
+  /**
+   * Canonical form of the public submission request, so a repeat carrying a
+   * caller-minted submissionId can be told apart from a conflicting reuse
+   * (T-13689). Absent on legacy invocation.input records.
+   */
+  requestFingerprint?: string | undefined
+  /** The admission reply the first request with this id received. */
+  admissionReply?: Promise<SubmissionResponse> | undefined
 }
 
 export interface BrokerHeldSubmission {
@@ -222,11 +230,26 @@ export interface Invocation {
   /** Short write lock for terminal-immediate busy inputs. This is not a turn queue. */
   steerPromise?: Promise<void> | undefined
   /**
-   * Steers waiting out another submission's pending own-turn window (T-13687
-   * C). Each is told about every event after its state projection and settles
-   * itself on a turn start, a slot change, or the invocation closing.
+   * Steers waiting on seat state: another submission's pending own-turn window
+   * (T-13687 C), or a broker-owned steer hold (T-13689: invocation starting,
+   * guarded turn, open prompt, pane retry). Each is told about every event
+   * after its state projection and settles itself when its condition changes
+   * or the invocation closes.
    */
-  pendingWindowWatchers?: Set<(event: InvocationEventEnvelope) => void> | undefined
+  steerWatchers?: Set<(event: { type: string }) => void> | undefined
+  /** True once start() has applied any launch input; steers are held until then. */
+  startSettled?: boolean | undefined
+  /**
+   * Admitted steers the broker holds and has not handed to the driver. They are
+   * cancelled, never lost, when the invocation stops or ends (T-13689).
+   */
+  heldSteers?: Set<SubmissionRecord> | undefined
+  /**
+   * Permission prompts the event stream reports open (`permission.requested`
+   * without its `permission.resolved`), covering driver-owned lifecycles the
+   * broker's pendingPermissions does not hold. Cleared at each turn terminal.
+   */
+  openPermissionRequests?: Set<string> | undefined
   /** Monotonic counter for broker-assigned inputIds. */
   inputCounter: number
   /**
@@ -327,6 +350,8 @@ export interface InvocationManagerOptions {
       }) => boolean | Promise<boolean>)
     | undefined
   isOperator?: ((principalRef: string) => boolean) | undefined
+  /** Delay between pane-not-ready steer attempts (T-13689). Defaults to 1 s. */
+  steerRetryIntervalMs?: number | undefined
   authorizeQueueJump?:
     | ((context: {
         invocationId: InvocationId
