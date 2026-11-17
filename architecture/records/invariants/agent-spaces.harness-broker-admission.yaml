@@ -21,13 +21,34 @@ predicate: >
   a non-retryable invocation.failed before any later same-seat delivery; HRC
   owns failed-run projection and fresh-runtime provisioning. A codex-tui
   codex-app-server seat advertises steer and queue only: launch and later queue
-  submissions remain in the broker-held FIFO until idle, and one head at a time
-  reaches Codex's idle-only queue with its broker input identity. A foreign human
-  or autonomous turn never contests that pending delivery. If an observed turn
-  terminalizes before any item supplies ownership evidence, the turn is unknown;
-  it contests the pending delivery and records the same indeterminate
-  submission.lost then non-retryable invocation.failed boundary before another
-  same-seat input can drain. Obligation-bearing
+  submissions remain in the broker-held FIFO until the own-turn slot is free,
+  and one head at a time is handed to Codex's queue with its broker input
+  identity. That delivery completes at Codex's queue acknowledgement and never
+  waits on attribution; the slot is freed only by a turn boundary, either the
+  head's own attribution or the terminal of an observed turn that never
+  correlated it, so a later head can reach Codex's queue while an earlier
+  unbound one still sits there. A foreign human or autonomous turn never
+  contests that pending delivery. An unbound codex-tui submission is settled
+  from Codex's queue state alone: when a complete, valid queue read at a turn
+  terminal shows its row gone and no turn has claimed it, the broker records
+  submission.lost with reason left-queue-unattributed and execution explicitly
+  indeterminate, without invocation.failed; a failed or partial read settles
+  nothing. If an observed turn terminalizes before any item supplies ownership
+  evidence, the turn is unknown; it contests the pending delivery and records
+  submission.lost with reason turn-correlation-lost then non-retryable
+  invocation.failed before another same-seat input can drain. At invocation
+  exit or failure, before the invocation's own terminal is recorded, inputs never
+  handed to the driver are cancelled and every other undisposed submission,
+  including an own-turn delivery still awaiting its turn, is recorded
+  submission.lost with reason teardown, so each submission ends with exactly one
+  terminal. Own attribution of a turn names its owner without removing a
+  submission the turn's manifest already carries, such as a steer absorbed
+  before a delayed initiating user item. A
+  steer is never held behind or refused by a busy seat: in a pending own-turn
+  window with no harness turn it waits for the next turn start or slot change
+  and then injects into that turn, never starting a second own turn while the
+  slot is held, and any refusal before a write carries not_written.
+  Obligation-bearing
   submissions use only queue, exclusive, or preempt and originate a dedicated
   turn; steer carries no obligation, caller wait, or own response. Its routing
   and terminal requirements are governed by agent-spaces.broker-steer-one-door.
@@ -43,13 +64,14 @@ predicate: >
   agent-spaces.harness-broker-turn-evidence and its bounded Pi accepted risk.
 authority:
   repo: agent-spaces
-  surface: wrkq T-07843 rev 7 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03 and wrkq T-08097 rev 13 on 2026-09-05; steer routing and hold boundary amended by Daedalus approval of T-13689 revision 2 on Lance's 2026-11-17 ruling
+  surface: wrkq T-07843 rev 7 approved by Daedalus on Lance's authority; amended by Daedalus approvals of wrkq T-07962 rev 3 on 2026-09-03, wrkq T-08097 rev 13 on 2026-09-05 and wrkq T-13687 revision 2 on 2026-11-17 (EN-57007); steer routing and hold boundary amended by Daedalus approval of T-13689 revision 2 on Lance's 2026-11-17 ruling
 source:
   - wrkq:T-13689
   - architecture/records/invariants/agent-spaces.broker-steer-one-door.yaml
   - wrkq:T-07843
   - wrkq:T-07962
   - wrkq:T-08097
+  - wrkq:T-13687
   - architecture/records/invariants/agent-spaces.codex-tui-app-server-presentation.yaml
   - architecture/records/invariants/agent-spaces.harness-broker-turn-evidence.yaml
   - architecture/records/risks/agent-spaces.pi-delivery-asserted-turn-start.yaml
@@ -65,11 +87,17 @@ required_tests:
   - every driver advertises supported admission classes and bracket-minting mode while new delivery-asserted drivers fail conformance
   - decision events replay and persist through the existing broker event stream without consumers reading harness transcripts
   - a Codex correlation loss emits one indeterminate submission.lost followed by non-retryable invocation.failed, drains no later same-seat input, settles the HRC run failed, crashes the runtime, and causes the next submission to provision fresh
-  - codex-tui launch and later queue inputs stay broker-held until idle reach Codex one at a time and preserve identity under pane goal interrupt and resume races
+  - codex-tui launch and later queue inputs stay broker-held until the slot is free reach Codex one at a time and preserve identity under pane goal interrupt and resume races
+  - codex-tui delivery returns at the queue acknowledgement before any turn exists and own attribution then records executed with the turn manifest listing the submission
+  - a codex-tui observed turn that never shows the pending input frees the slot at its terminal, the next input runs, and a complete queue read showing the row gone records exactly one left-queue-unattributed submission.lost with no invocation.failed
+  - a failed or partial codex-tui queue read leaves the submission undisposed and does not block the next input
   - a codex-tui unknown terminal contests a pending delivery and emits lost then failed while foreign attribution never contests
+  - invocation exit or failure records exactly one teardown submission.lost for every undisposed submission including a possibly_written delivery and the pending own-turn delivery, cancels only never-handed-over inputs, and records every such terminal before invocation.exited or invocation.failed
+  - a steer absorbed before a delayed initiating attribution on the same observed turn remains in that turn's manifest beside the initiator
+  - a steer in the pending own-turn window waits then lands on that turn as native steering and is never refused busy or recorded possibly_written
 last_verified:
-  date: 2026-09-05
-  evidence: Daedalus source-grounded approvals of T-07962 rev 3 and T-08097 rev 13 established fail-closed correlation loss for codex-cli-tmux and observed codex-tui turns, with HRC fresh-runtime recovery; implementation gates remain pending
+  date: 2026-11-17
+  evidence: Daedalus source-grounded approval of T-13687 revision 2 (EN-57007); unchanged daedalus-manifest-probe.test.ts passed 1 test and test/admission/teardown-settlement.test.ts passed 3 tests, demonstrating retained manifest membership and submission terminals before invocation exit; results under the T-13687 artifact directory as daedalus-manifest-probe.rev2.result.txt and daedalus-teardown-rev2.result.txt; full implementation gates and installed acceptance not verified by this consult
 reopen_when:
   - cross-seat scheduling or caller policy moves into the broker
   - an admission class changes own-turn obligation wait or disposition semantics
@@ -77,7 +105,9 @@ reopen_when:
   - queue identity authority cancellation TTL ordering snapshot or replay semantics change
   - a TUI mechanic requires navigation-key choreography or an unsupported capability is emulated
   - turn evidence disposition or manifest contracts change
-  - submission.lost gains definite execution meaning, permits later same-seat delivery, or stops forcing failed-run fresh-runtime recovery
-  - codex-tui admits exclusive bypasses broker-held FIFO delivery lets foreign attribution contest or permits drain after unknown attribution
+  - submission.lost gains definite execution meaning, or a turn-correlation-lost loss permits later same-seat delivery or stops forcing failed-run fresh-runtime recovery
+  - a left-queue-unattributed loss is recorded without a complete provider queue read, a teardown loss before invocation exit or failure or after its terminal, or a handed-over submission is cancelled at teardown
+  - codex-tui admits exclusive bypasses broker-held FIFO delivery lets foreign attribution contest permits drain after unknown attribution or makes delivery wait on attribution
+  - a steer is held behind or refused by a busy seat or starts a second own turn while the slot is held
 supersedes: []
 superseded_by: null

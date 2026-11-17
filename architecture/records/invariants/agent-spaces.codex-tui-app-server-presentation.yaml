@@ -81,7 +81,7 @@ required_tests:
   - resume deletes every stored queue item before thread/resume and records each deletion diagnostically
   - codex-tui refuses approval policy other than never and its hooks remain raw provenance outside turn evidence
   - real-terminal validation covers broker and human turns steer interrupt continuation pane exit runtime cleanup and false-to-later-attachment
-  - TUI and nonpresented Codex steering confirm only the exact native user item preserve initiating ownership and queue waiters and never duplicate the initial user message
+  - TUI and nonpresented Codex steering confirm only the exact native user item preserve initiating ownership and queued-initiator attribution and never duplicate the initial user message
   - T-12162 G2 codex-hrcpty births without a TUI and completes a turn; read-only attachment spawns nothing; first read-write attachment spawns exactly one TUI at the client's size and resumes the thread
   - T-12162 G5 broker SIGKILL without any lease-end action leaves no app-server for the socket within 6 seconds and HRC records the runtime crashed; lease end independently leaves no app-server
   - T-12162 G1-G5 cover real-terminal startup query relay, detach and replay, restart survival, unchanged codex tmux compilation, delivery parity and clean-TUI-exit continuation clearing
