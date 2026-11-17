@@ -130,6 +130,7 @@ export function createCodexDriverStart(
     s.retiredSteerTurnsByInput.clear()
     s.observedUserItems.clear()
     s.queuedSubmissions.clear()
+    s.completedTurnVersion = 0
     s.attributionByTurn.clear()
     s.firstItemSeen.clear()
     s.attributionWaiters.clear()

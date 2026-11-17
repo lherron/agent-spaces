@@ -5,6 +5,7 @@ import { terminateProcess } from '../../runtime/signals'
 import type { CodexCliTmuxHookEnvelope } from '../codex-cli-tmux/hook-events'
 import { extractCodexHookRecord } from '../codex-cli-tmux/hook-events'
 import type { ApplyInputResult, DriverContext } from '../driver'
+import { withDeliveryEvidence } from '../driver'
 import { createHookCaptureSeam } from '../hook-capture'
 import { getString } from '../hook-json'
 import {
@@ -258,6 +259,7 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
     const attributed = new Promise<TurnId>((resolve, reject) => {
       s.attributionWaiters.set(inputId, { resolve, reject })
     })
+    const completedTurnVersion = s.completedTurnVersion
     try {
       const response = await s.rpc.sendRequest<unknown>('thread/queue/add', {
         threadId: s.threadId,
@@ -287,6 +289,9 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
           },
         }
       )
+      // A native terminal can precede queue/add's response. Reconcile again
+      // now that the provider's queue identity is available.
+      if (completedTurnVersion !== s.completedTurnVersion) void reconcilePendingQueuedInputs()
       if (s.queuedStartRequired && !s.turnActive) {
         await startQueuedSubmission(inputId, queuedSubmissionId)
       }
@@ -330,6 +335,69 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
             BrokerErrorCode.HarnessError,
             error instanceof Error ? error.message : 'Codex queue delivery failed'
           )
+    }
+  }
+
+  async function reconcilePendingQueuedInputs(): Promise<void> {
+    const rpc = s.rpc
+    const threadId = s.threadId
+    if (!rpc || !threadId) return
+    // Fence the read to inputs pending at this terminal, never later arrivals.
+    const pending = [...s.queuedSubmissions].filter(([id]) => s.pendingBrokerInputs.has(id))
+    if (pending.length === 0) return
+    try {
+      const queuedIds = new Set<string>()
+      const cursors = new Set<string>()
+      let cursor: string | undefined
+      for (;;) {
+        const page = asFrameRecord(
+          await rpc.sendRequest<unknown>('thread/queue/list', {
+            threadId,
+            ...(cursor !== undefined ? { cursor } : {}),
+          })
+        )
+        // Absence is proof only after a complete, valid provider queue read.
+        if (!Array.isArray(page['data'])) throw new Error('Invalid Codex queue/list data')
+        for (const entry of page['data']) {
+          const id = queueSubmissionId(entry)
+          if (id === undefined) throw new Error('Codex queue/list entry lacks an id')
+          queuedIds.add(id)
+        }
+        const next = page['nextCursor']
+        if (next === null) break
+        if (typeof next !== 'string' || next.length === 0 || cursors.has(next)) {
+          throw new Error('Invalid or repeated Codex queue/list cursor')
+        }
+        cursors.add(next)
+        cursor = next
+      }
+      // A newer turn may already have consumed the submission and still be
+      // compacting before its user item. Its terminal will reconcile again.
+      if (s.rpc !== rpc || s.threadId !== threadId || s.turnActive) return
+      for (const [inputId, queuedSubmissionId] of pending) {
+        if (
+          !s.pendingBrokerInputs.has(inputId) ||
+          s.queuedSubmissions.get(inputId) !== queuedSubmissionId ||
+          queuedIds.has(queuedSubmissionId)
+        )
+          continue
+        s.attributionWaiters
+          .get(inputId)
+          ?.reject(
+            withDeliveryEvidence(
+              new BrokerError(
+                BrokerErrorCode.HarnessError,
+                `Codex queued submission ${queuedSubmissionId} left Codex's queue without an attributed turn`
+              ),
+              'possibly_written'
+            )
+          )
+      }
+    } catch (error) {
+      if (s.rpc !== rpc || s.threadId !== threadId) return
+      emitDiagnostic('warn', 'Could not reconcile pending Codex queued inputs', {
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 
@@ -407,6 +475,7 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
     scrubQueuedInputs,
     ensureCodexHookTrust,
     applyQueuedInput,
+    reconcilePendingQueuedInputs,
     startNextQueuedSubmission,
     startQueuedSubmission,
     startCodexTuiHookListener,

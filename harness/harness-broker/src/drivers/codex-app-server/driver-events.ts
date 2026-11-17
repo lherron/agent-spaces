@@ -375,14 +375,20 @@ export function createCodexDriverEvents(s: CodexDriverState) {
     const params = asFrameRecord(notification.params)
     const turn = frameString(params['turnId']) as TurnId | undefined
     if (turn === undefined || s.firstItemSeen.has(turn)) return false
-    s.firstItemSeen.add(turn)
     // A context-entry item can never initiate or re-own the turn it joins.
     // Even in a provider-ordering anomaly where it is the first observed item,
     // leave attribution unresolved rather than turning a steer into execution.
-    if (pendingSteer !== undefined) return true
+    if (pendingSteer !== undefined) {
+      s.firstItemSeen.add(turn)
+      return true
+    }
     const item = asFrameRecord(params['item'])
     const itemType = frameString(item['type'])
     const clientId = frameString(item['clientId']) as InputId | undefined
+    // Compaction (or any other prelude) can precede the queued user item.
+    // Only that user item can settle a pending broker input's ownership.
+    if (itemType !== 'userMessage' && s.pendingBrokerInputs.size > 0) return false
+    s.firstItemSeen.add(turn)
     if (itemType === 'userMessage') {
       if (
         clientId !== undefined &&

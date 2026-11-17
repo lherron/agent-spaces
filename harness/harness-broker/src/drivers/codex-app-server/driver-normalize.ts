@@ -58,8 +58,9 @@ export function createCodexDriverNormalizer(
     ensureUnknownAttribution,
     rejectPendingAttributions,
     attributeFirstItem,
+    emitAttribution,
   } = events
-  const { observeModelReroute, startNextQueuedSubmission } = control
+  const { observeModelReroute, startNextQueuedSubmission, reconcilePendingQueuedInputs } = control
 
   function normalizeCodexPrelude(notification: JsonRpcNotification): void {
     if (notification.method === 'item/started') {
@@ -157,7 +158,8 @@ export function createCodexDriverNormalizer(
       }
     }
     if (s.codexTui && notification.method === 'turn/completed') {
-      ensureUnknownAttribution(turnCompletedNotificationId(notification) ?? s.currentTurnId)
+      const turn = turnCompletedNotificationId(notification) ?? s.currentTurnId
+      if (turn !== undefined) emitAttribution(turn, { ownership: 'foreign', origin: 'autonomous' })
     }
   }
 
@@ -437,6 +439,12 @@ export function createCodexDriverNormalizer(
         event.type === 'turn.interrupted'
       ) {
         settlePendingSteersForTurn(event.payload.turnId)
+        if (s.codexTui) {
+          s.completedTurnVersion += 1
+          // Read the queue before an interrupted foreign turn explicitly starts
+          // its next submission; that new execution is not evidence of loss.
+          void reconcilePendingQueuedInputs()
+        }
         if (s.codexTui && event.type === 'turn.interrupted') {
           s.queuedStartRequired = true
           const attribution = s.attributionByTurn.get(event.payload.turnId)

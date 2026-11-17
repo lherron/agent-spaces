@@ -486,8 +486,8 @@ describe('codex-tui steer races and autonomous turns', () => {
           ['turn.completed', 'turn.failed', 'turn.interrupted'].includes(event.type)
       )
       expect(run.events[unknownIndex]?.payload).toMatchObject({
-        ownership: 'unknown',
-        origin: 'unknown',
+        ownership: 'foreign',
+        origin: 'autonomous',
       })
       expect(unknownIndex).toBeGreaterThanOrEqual(0)
       expect(unknownIndex).toBeLessThan(terminalIndex)
@@ -507,7 +507,10 @@ describe('codex-tui steer races and autonomous turns', () => {
     }
   })
 
-  test.each(['native-terminal', 'app-server-error', 'turn-timeout', 'rpc-close'] as const)(
+  // A native terminal now reconciles against Codex's queue (T-13668), covered
+  // by codex-tui-compaction.test.ts. Transport/error/timeout failures retain
+  // the existing unknown-attribution fail-closed path.
+  test.each(['app-server-error', 'turn-timeout', 'rpc-close'] as const)(
     'attributes an itemless pending turn unknown before %s and fails correlation closed',
     async (terminalPath) => {
       const rpc = new FakeCodexRpc()
@@ -546,12 +549,7 @@ describe('codex-tui steer races and autonomous turns', () => {
           'itemless turn should start'
         )
 
-        if (terminalPath === 'native-terminal') {
-          rpc.emit('turn/completed', {
-            threadId: 'thread_test',
-            turn: { id: 'turn_itemless_pending', status: 'failed', items: [] },
-          })
-        } else if (terminalPath === 'app-server-error') {
+        if (terminalPath === 'app-server-error') {
           rpc.emit('error', { message: 'synthetic app-server error', code: 'synthetic_error' })
         } else if (terminalPath === 'rpc-close') {
           rpc.fail(new Error('synthetic websocket close'))

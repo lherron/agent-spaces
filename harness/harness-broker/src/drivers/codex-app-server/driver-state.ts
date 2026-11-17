@@ -155,6 +155,8 @@ export interface CodexDriverState {
   readonly retiredSteerTurnsByInput: Map<InputId, Set<TurnId>>
   readonly observedUserItems: Set<string>
   readonly queuedSubmissions: Map<InputId, string>
+  /** Fences queue/add acknowledgements that arrive after a native terminal. */
+  completedTurnVersion: number
   readonly attributionByTurn: Map<TurnId, TurnAttribution>
   readonly firstItemSeen: Set<TurnId>
   readonly attributionWaiters: Map<
@@ -255,6 +257,7 @@ export function createCodexDriverState(): CodexDriverState {
     retiredSteerTurnsByInput: new Map(),
     observedUserItems: new Set(),
     queuedSubmissions: new Map(),
+    completedTurnVersion: 0,
     attributionByTurn: new Map(),
     firstItemSeen: new Set(),
     attributionWaiters: new Map(),
