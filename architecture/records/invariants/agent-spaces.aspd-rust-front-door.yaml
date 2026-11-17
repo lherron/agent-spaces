@@ -41,8 +41,7 @@ predicate: >
   from the daemon. The checked-in fixture and live-corpus recordings from the
   last dual-daemon release preserve the reference, including declared
   departures; deliberate changes re-record affected cases in the same commit
-  for review. The approved fingerprint departure hashes staged files'
-  executable bits rather than full modes. Comparisons hold absolute paths and
+  for review. Comparisons hold absolute paths and
   the release directory equal across restored seeds; volatile inputs are
   enumerated from measured differences. Each subject's reported derived hashes
   are checked against its actual reported body before measured volatile inputs
