@@ -9,12 +9,12 @@ publish = false
 
 [workspace.dependencies]
 # Every cardo crate names this one rev (cardo app guide §1): the commit of
-# cardo's tag lattice-v1, which is also protocol-3.0. For local
+# cardo's tag lattice-v1.2, which is also protocol-3.7. For local
 # work against a cardo checkout, patch it on the command line:
 #   cargo build --config 'patch."https://github.com/lherron/cardo".cardo-runtime.path="../../cardo/crates/cardo-runtime"' ...
-cardo-core = { git = "https://github.com/lherron/cardo", rev = "c3639924fb0723a44cd026de7bbc5ebc0dd7fff6" }
-cardo-app = { git = "https://github.com/lherron/cardo", rev = "c3639924fb0723a44cd026de7bbc5ebc0dd7fff6" }
-cardo-runtime = { git = "https://github.com/lherron/cardo", rev = "c3639924fb0723a44cd026de7bbc5ebc0dd7fff6" }
+cardo-core = { git = "https://github.com/lherron/cardo", rev = "6cf2d0116a15ae120310efaaa2a21ef416b87823" }
+cardo-app = { git = "https://github.com/lherron/cardo", rev = "6cf2d0116a15ae120310efaaa2a21ef416b87823" }
+cardo-runtime = { git = "https://github.com/lherron/cardo", rev = "6cf2d0116a15ae120310efaaa2a21ef416b87823" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 indexmap = "2"
