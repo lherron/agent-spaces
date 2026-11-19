@@ -34,21 +34,27 @@ class Acceptance:
     def write(path, data):
         path.write_text(json.dumps(data, indent=2) + "\n")
 
-    def prae(self, name, *args):
+    def prae(self, name, *args, retry_read=False):
         argv = ("prae", *args, "--json")
-        result = subprocess.run(argv, capture_output=True, text=True, timeout=45)
-        try:
-            envelope = json.loads(result.stdout)
-        except ValueError as error:
-            raise RuntimeError(f"{argv} failed: {result.stderr}") from error
-        self.write(self.gate_dir / f"{name}.json", envelope)
+        for attempt in range(4):
+            result = subprocess.run(argv, capture_output=True, text=True, timeout=45)
+            try:
+                envelope = json.loads(result.stdout)
+            except ValueError as error:
+                raise RuntimeError(f"{argv} failed: {result.stderr}") from error
+            self.write(self.gate_dir / f"{name}.json", envelope)
+            if envelope.get("error", {}).get("code") not in {
+                "owner_unreachable", "owner_timeout", "busy",
+            } or not retry_read or attempt == 3:
+                break
+            time.sleep(1)
         assert result.returncode == 0 and envelope["ok"], (argv, envelope)
         return envelope["result"]
 
     def events(self, after=0):
         return self.prae("broker-events", "seat", "history", self.seat, "--kinds",
                          "broker-events", "--runtime-id", self.state["runtime"], "--since",
-                         str(after), "--limit", "200")
+                         str(after), "--limit", "200", retry_read=True)
 
     def wait_event(self, after, label, predicate):
         deadline = time.monotonic() + 80
@@ -212,11 +218,7 @@ class Acceptance:
         assert completed["invocationId"] == interrupted["invocationId"]
         return dict(tool=tool, interrupted=interrupted, nextTurn=completed)
 
-    def resume(self):
-        runtime = self.state["runtime"]
-        continuation = self.event(0, "continuation.updated")["payload"]
-        assert continuation["kind"] == "conversation" and continuation["provider"] == "google"
-        key = continuation["key"]
+    def exit_child(self, runtime):
         processes = {}
         for line in subprocess.check_output(["ps", "-axww", "-o", "pid=,ppid=,command="],
                                             text=True).splitlines():
@@ -230,14 +232,28 @@ class Acceptance:
                     and f"--gemini_dir={self.state['home']}" in argv]
         assert len(children) == 1, (runtime, self.state["home"], children)
         child = children[0]
-        self.write(self.gate_dir / "child-exit.json",
-                   dict(pid=child, parentPid=processes[child][0], signal="SIGTERM", runtime=runtime))
         os.kill(child, signal.SIGTERM)
+        return dict(pid=child, parentPid=processes[child][0], signal="SIGTERM", runtime=runtime)
+
+    def resume(self):
+        runtime = self.state["runtime"]
+        child_record = self.gate_dir / "child-exit.json"
+        before = self.prae("predecessor-before", "runtime", "get", runtime, retry_read=True)["hrc"]
+        continuation = before["continuation"]
+        assert continuation["kind"] == "conversation" and continuation["provider"] == "google"
+        key = continuation["key"]
+        if child_record.exists():
+            exit_evidence = json.loads(child_record.read_text())
+            assert exit_evidence["runtime"] == runtime, exit_evidence
+        else:
+            exit_evidence = self.exit_child(runtime)
+            self.write(child_record, exit_evidence)
+        child = exit_evidence["pid"]
         # An idle child exit is visible first in hrc-pty. HRC's five-minute
         # aging pass then settles the dead runtime and permits a successor.
         deadline = time.monotonic() + 330
         while True:
-            retired = self.prae("predecessor", "runtime", "get", runtime)["hrc"]
+            retired = self.prae("predecessor", "runtime", "get", runtime, retry_read=True)["hrc"]
             if retired["status"] in {"archived", "terminated", "exited", "failed", "stale"}:
                 break
             assert time.monotonic() < deadline, retired["status"]
