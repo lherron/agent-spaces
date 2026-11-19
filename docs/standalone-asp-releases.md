@@ -5,7 +5,9 @@ explicitly selected artifact. The explicit staging recipes below do not publish
 packages, link global commands, select a current release, synchronize a
 consumer, or touch HRC/ACP. Canonical `just install` also builds and activates
 an immutable release when the system aspd namespace is configured; see
-[aspd](aspd.md) and the repository install contract for that integrated path.
+[aspd](aspd.md) and
+[canonical install and package publication](#canonical-install-and-package-publication)
+for that integrated path.
 
 ```bash
 just build-asp-release /absolute/build-root
@@ -58,3 +60,53 @@ reports record the selected executable and `hostedDrivers`. Pi SDK remains
 unbound pending a hermetic release compilation surface, so binding-aware aspd
 refuses it before `executionRelease`. Compile RPCs run through the release
 facade/aspd and command turns through the selected release worker.
+
+## Canonical install and package publication
+
+On the main checkout, `just install` cleans, installs, and builds; links both
+the `asp` CLI and `harness-broker`; publishes one coherent timestamped ASP
+package set to the producer's loopback Verdaccio; and synchronizes the one
+consumer that follows `latest` — **hrc-runtime** — unless `no-sync=1` is passed.
+All packages in a published ASP set must share the same version.
+
+If the system namespace at `../var/aspd` is configured, a main-checkout
+`just install` also builds and installs an immutable ASP release, activates
+it through `aspd-activate` (restarting the service), and verifies that the
+serving source commit matches the installed checkout. Linked worktrees never
+activate the system aspd. Any seat may run this install from the main checkout,
+including its aspd activation (Lance ruling 2026-10-01). Standalone
+`aspd-activate` or `aspd-restart` stays with Mable primary. See the
+[aspd service operations](aspd.md#current-service-operations).
+
+Both the install sync and `just sync-downstream` use the
+[HRC sync script](../scripts/sync-hrc-downstream.sh). It runs `just pull-deps` in
+HRC, delivers any generated `bun.lock` commit to HRC's `origin/main`, notifies
+`mable@hrc-runtime:primary` of the push, then runs `bun run build` in HRC.
+It refuses dirty locks, unpublished consumer history and incomplete commits.
+It does not select or publish an HRC release: the HRC owner runs `just install`,
+then the canonical publisher runs `just publish`. Do not weaken it to bare
+`bun run sync:asp`: without `--pull` that only reports staleness and exits 0,
+silently building against a stale ASP lock (T-07727; delivery: T-11729).
+
+**ACP is not a sync target.** agent-control-plane pins ASP and HRC as
+operator-managed *producer tuples* and advances them only through its own
+governed `just advance-producers` inside a coordinated deployment window. Its own
+`docs/producer-advance.md` (in the agent-control-plane repo) names producer
+`sync-downstream` — along with `just pull-deps`, routine `just install`,
+and a moving `latest` tag — as a mechanism that must never move that tuple: a
+producer's install publishes a node-local set and moves `latest`, and that side
+effect is not a release signal for ACP. T-07626 deleted ACP's `sync:asp` script
+and pinned exact versions in the same commit, so anything here that calls it
+fails the whole install. ACP sitting behind the registry is the intended steady
+state, not staleness — the `PRODUCER_PINNED` advisory lines exist so registry
+movement stays visible without changing the deployed tuple.
+
+Linked worktrees default to the isolated worktree publication channel and do
+not repoint global wrappers or synchronize consumer checkouts. Use
+`force-link=1` / `force-sync=1` only for an intentional cutover.
+
+The estate has multiple registry stores, and each consumer resolves the endpoint
+in its own `.npmrc`. Publish the coherent set once, then mirror those exact
+immutable package tarballs into any other store that must satisfy the lock.
+Running producer `just install` independently on each node creates timestamp
+churn rather than deploying the same artifact.

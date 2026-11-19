@@ -1,54 +1,16 @@
 ## Build & Run
 
-This Bun monorepo groups packages under `contracts/*`, `core/*`, `drivers/*`, `compiler/*`, `harness/*`, and `apps/*`.
+Agent Spaces composes spaces into executable agent environments in a Bun monorepo.
 Run `bun install` to install dependencies and `bun run build` to build all packages.
+See the [workspace map](docs/architecture-brief.md#layers) for package and fixture locations.
 
 ## Install and Publish Contract
 
-On the main checkout, `just install` cleans, installs, and builds; links both
-the `asp` CLI and `harness-broker`; publishes one coherent timestamped ASP
-package set to the producer's loopback Verdaccio; and synchronizes the one
-consumer that follows `latest` — **hrc-runtime** — unless `no-sync=1` is passed.
-All packages in a published ASP set must share the same version.
-
-If the system namespace at `../var/aspd` is configured, a main-checkout
-`just install` also builds and installs an immutable ASP release, activates
-it through `aspd-activate` (restarting the service), and verifies that the
-serving source commit matches the installed checkout. Linked worktrees never
-activate the system aspd. Any seat may run this install from the main checkout,
-including its aspd activation (Lance ruling 2026-10-01). Standalone
-`aspd-activate` or `aspd-restart` stays with Mable primary.
-
-That sync runs `just pull-deps`, delivers its generated `bun.lock` commit to
-HRC's `origin/main`, notifies `mable@hrc-runtime:primary`, then builds HRC.
-It refuses dirty locks, unpublished consumer history and incomplete commits.
-It does not select or publish an HRC release: the HRC owner runs `just install`,
-then the canonical publisher runs `just publish`. Do not weaken it to bare
-`bun run sync:asp`: without `--pull` that only reports staleness and exits 0,
-silently building against a stale ASP lock (T-07727; delivery: T-11729).
-
-**ACP is not a sync target.** agent-control-plane pins ASP and HRC as
-operator-managed *producer tuples* and advances them only through its own
-governed `just advance-producers` inside a coordinated deployment window. Its own
-`docs/producer-advance.md` (in the agent-control-plane repo) names producer
-`sync-downstream` — along with `just pull-deps`, routine `just install`,
-and a moving `latest` tag — as a mechanism that must never move that tuple: a
-producer's install publishes a node-local set and moves `latest`, and that side
-effect is not a release signal for ACP. T-07626 deleted ACP's `sync:asp` script
-and pinned exact versions in the same commit, so anything here that calls it
-fails the whole install. ACP sitting behind the registry is the intended steady
-state, not staleness — the `PRODUCER_PINNED` advisory lines exist so registry
-movement stays visible without changing the deployed tuple.
-
-Linked worktrees default to the isolated worktree publication channel and do
-not repoint global wrappers or synchronize consumer checkouts. Use
-`force-link=1` / `force-sync=1` only for an intentional cutover.
-
-The estate has multiple registry stores, and each consumer resolves the endpoint
-in its own `.npmrc`. Publish the coherent set once, then mirror those exact
-immutable package tarballs into any other store that must satisfy the lock.
-Running producer `just install` independently on each node creates timestamp
-churn rather than deploying the same artifact.
+Push before `just install`. On the main checkout it publishes a coherent ASP
+package set, synchronizes HRC by default, and activates the configured system
+aspd. ACP pins its producers separately. Linked worktrees publish in isolation
+by default. Read the [install and publication contract](docs/standalone-asp-releases.md#canonical-install-and-package-publication)
+before installing, publishing, or syncing.
 
 ## Codex Overlay
 
@@ -82,7 +44,8 @@ Use the [documentation index](docs/README.md) for references and runbooks; run t
 - Closeout evidence tiers: see [docs/closeout-evidence.md](docs/closeout-evidence.md)
 - Agent enablement changelog / retro step: see [docs/agent-enablement-changelog.md#retro-cadence](docs/agent-enablement-changelog.md#retro-cadence)
 - Pack smoke: `bun scripts/smoke-pack-cross-repo.ts` (verifies cross-repo published tarballs don't carry `exports.bun → ./src/*.ts`)
-- Harness broker MATRIX smoke (`bun run smoke:matrix`, single row via `--config <name>`) — required for any harness-broker change. **Run it from a real terminal via ghostmux — use the `ghoste2e` skill — NOT inline in your own agent session.** A `ghostmux new` surface is a clean login shell; running inline from a Claude Code session leaks `CLAUDE_CODE_CHILD_SESSION`/`CLAUDE_CODE_SESSION_ID`/`CLAUDECODE` into the child `claude`, which then treats itself as a nested child and skips its own session-transcript persistence. The `real-claude-tmux-midturn` row tails that transcript for the mid-turn `queue-operation`/`enqueue` line, so it then **false-negatives with `midturn_user_prompt_capture: got 0`** even though the steered prompt visibly enqueued — a harness-env artifact, not a code defect. If you must run inline, strip the vars: `env -u CLAUDECODE -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_EXECPATH -u TMUX bun run smoke:matrix --config real-claude-tmux-midturn`.
+- Run the [harness broker matrix](docs/closeout-evidence.md#harness-broker-matrix)
+  from a clean Ghostty terminal for harness-broker changes.
 - Pack smoke for `@lherron/agent-spaces` (`cd apps/cli; bun scripts/smoke-test-pack.ts`) — required after packaging changes → see [apps/cli/AGENTS.md](apps/cli/AGENTS.md)
 - Pi harness env/runtime flags (`--harness pi`: `PI_CODING_AGENT_DIR`, `--no-skills`, hooks-scripts) → see [drivers/harness-pi/AGENTS.md](drivers/harness-pi/AGENTS.md)
 
@@ -106,7 +69,7 @@ Ruled by Lance 2026-11-17 (T-13668): **callers never choose a door from seat sta
 | **Guarded turn** | Never steered into. Waits for the turn's terminal, then starts its own turn. | T-13689 |
 | **Open permission request or question** (a `permission.requested` without its resolution, or an open `AskUserQuestion`/`request_user_input` tool call) | Held until the request resolves, because injected text must never answer a prompt. | T-13689 |
 | **Pane not ready before paste** (Claude `pane_not_quiescent`, `before_paste`) | Nothing was written, so the broker holds and retries until the input box is ready. | T-13689 |
-| **Driver without the steer class** (codex-desktop) | Admitted through that driver's own queue. Until T-13689 ships, HRC downgrades the steer to enqueue at its door (`downgradeReason: steer_not_supported`). | T-13689 |
+| **Driver without the steer class** (codex-desktop) | Admitted through that driver's own queue. | T-13689 |
 | **Cold** (not yet born) | HRC births the runtime and the steer rides the birth turn with the priming. | Live |
 
 **The only steer refusals.** Anything else is a broker defect:
@@ -121,34 +84,9 @@ Explicit doors stay for callers who want their semantics on purpose: **enqueue**
 
 ## aspd operations
 
-`aspd` is an explicitly namespaced service; there is no global lifecycle or
-status command. Use the Justfile service surface first, not `pgrep`,
-`launchctl`, or broad filesystem searches:
-
-```bash
-just aspd-status <absolute-namespace>
-just aspd-start <absolute-namespace>
-just aspd-stop <absolute-namespace>
-just aspd-restart <absolute-namespace>
-```
-
-The completed T-08539 pilot namespaces are
-`/Users/lherron/praesidium/var/wrkq-artifacts/T-08539/ns` and
-`/Users/lherron/praesidium/var/wrkq-artifacts/T-08539/astra-grade/ns`. They are
-retained evidence namespaces and were deliberately stopped at pilot closeout;
-do not assume either is the active production namespace. In `aspd-status`, an
-installed or selected release does not mean the daemon is live. Treat
-`runningProcess`, the RPC `serving` readback, and `runningEqualsSelected` as the
-authoritative running-state evidence. See [docs/aspd.md](docs/aspd.md) for the
-namespace layout and activation contract.
-
-## Project Structure
-
-Directory names under the six workspace roots differ from published package names
-(`core/config` = `spaces-config`, `apps/cli` = `@lherron/agent-spaces`, etc.) —
-read the package.json when in doubt. Integration tests live in
-`integration-tests/`, with fixtures (sample registry/spaces, claude/codex shims)
-in `integration-tests/fixtures/`.
+Use the [namespaced aspd service recipes](docs/aspd.md#current-service-operations).
+For live status, use `just aspd-status <absolute-namespace>` and check the
+running process, the serving release, and whether it matches the selected release.
 
 ## Repo Boundaries
 
@@ -167,18 +105,8 @@ enforced by `bun run check:boundaries`:
 
 ## Smoke Testing the CLI
 
-Test `asp run` changes with `--dry-run` against the fixture spaces
-(`bun apps/cli/bin/asp.js run integration-tests/fixtures/sample-registry/spaces/base --dry-run`
-— no build step needed; prefix the codex-shim fixture onto PATH for codex
-dry-runs). Two gotchas:
-
-- Set `ASP_HOME` to a writable path (e.g. `/tmp/asp-test`) or temp-dir creation fails with EPERM.
-- `asp run` does not accept a `--prompt` flag.
-
-For the harness-broker MATRIX smoke (`bun run smoke:matrix`, required for any
-harness-broker change) see [harness/harness-broker/AGENTS.md](harness/harness-broker/AGENTS.md).
-For the published-CLI pack smoke (`cd apps/cli; bun scripts/smoke-test-pack.ts`)
-see [apps/cli/AGENTS.md](apps/cli/AGENTS.md).
+Use the [CLI dry-run smoke](docs/closeout-evidence.md#cli-dry-run-smoke) for
+`asp run` changes. Use a writable `ASP_HOME`. `asp run` has no `--prompt` flag.
 
 ## Error Handling
 

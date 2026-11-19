@@ -50,6 +50,17 @@ defined by the [compiler catalog](../compiler/agent-spaces/src/harness-selection
 
 ## Current service operations
 
+`aspd` requires an explicit namespace for each status or lifecycle operation.
+Use the Justfile service recipes before reaching for `pgrep`, `launchctl`, or
+broad filesystem searches.
+
+```bash
+just aspd-status <absolute-namespace>
+just aspd-start <absolute-namespace>
+just aspd-stop <absolute-namespace>
+just aspd-restart <absolute-namespace>
+```
+
 The namespace layout, log format and lifecycle recipes below remain implemented
 by `scripts/aspd-service.ts` and `harness/aspc-facade/src/aspd.ts`; the pilot
 protocol and acceptance sections describe historical evidence. Current read and
@@ -627,6 +638,12 @@ pilot client artifact and process (`scripts/aspd-pilot`), evidence under
    with `hostedDrivers` absent; do not claim or launch a legacy non-Codex route.
 
 ### Pilot evidence layout
+
+The completed T-08539 pilot namespaces are
+`/Users/lherron/praesidium/var/wrkq-artifacts/T-08539/ns` and
+`/Users/lherron/praesidium/var/wrkq-artifacts/T-08539/astra-grade/ns`. They are
+retained evidence namespaces and were deliberately stopped at pilot closeout.
+Use the configured namespace for production status.
 
 T-08539 retains its installed acceptance under
 `var/wrkq-artifacts/T-08539/` (outside every checkout): `releases-build/` (built

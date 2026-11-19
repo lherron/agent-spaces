@@ -70,6 +70,12 @@ core → contracts. One exception: the compiler root may not import drivers
   `remove`, `upgrade`, `diff`, `agent`, `harnesses`, `doctor`, `gc`), the shared cli-kit and a
   turn runner.
 
+Workspace directories and published package names can differ. For example,
+`core/config` publishes `spaces-config` and `apps/cli` publishes
+`@lherron/agent-spaces`. Check the workspace's `package.json` for its name.
+Integration tests live in `integration-tests/`. The sample registry, spaces,
+and Claude and Codex shims live in `integration-tests/fixtures/`.
+
 ## How a space becomes a running agent
 
 **Resolve and pin.** The inputs are merged: the agent profile (base + mode), the project
