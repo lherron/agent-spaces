@@ -726,16 +726,14 @@ export function bracketedPaste(text: string): string {
 }
 
 /**
- * Split a styled `capture` into its viewport rows. The formatter writes its
- * mode and tabstop preamble, homes the cursor, then one `\r\n` per row.
- */
-/**
- * Pair the plain cursor row with its styled twin. The styled capture's rows
- * do not always line up with the viewport: after output scrolls and wraps it
- * can carry rows above the viewport and break rows differently, so the styled
- * row at the cursor index may be another line entirely. Take the styled row
- * whose visible text is the cursor row, searching from the bottom, where the
- * input box is; fall back to the index when no row matches.
+ * Pair the plain cursor row with its styled twin. A styled `capture` is a VT
+ * replay stream, not a row grid (by design in hrc-pty): it carries the whole
+ * active screen including rows above the viewport, and a soft-wrapped row ends
+ * in a bare `\n`. So the styled row at the cursor index may be another line
+ * entirely. Take the styled row whose visible text is the cursor row,
+ * searching from the bottom, where the input box is; fall back to the index
+ * when no row matches. hrc-runtime is adding an opt-in viewport-aligned styled
+ * capture; when it ships, this becomes an index read.
  */
 export function inputSnapshotFrom(
   plain: HrcptyCapture,
@@ -766,6 +764,11 @@ function visibleText(row: string): string {
     .trimEnd()
 }
 
+/**
+ * Split a styled `capture` on `\r\n`, dropping the mode and tabstop preamble
+ * before the first cursor home. The rows are not viewport-aligned (see
+ * {@link inputSnapshotFrom}).
+ */
 export function styledRows(text: string): string[] {
   const rows = text.split('\r\n')
   const first = rows[0] ?? ''
