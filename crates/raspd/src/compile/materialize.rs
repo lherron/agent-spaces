@@ -114,16 +114,15 @@ pub(super) fn materialize_and_emit(
             asp_home,
             "codex",
             |staging_output, _| {
-                codex::compose_target(
+                codex::bundle::compose_target(
                     &artifacts,
                     staging_output,
                     &target_name,
                     plan.codex_options.as_ref(),
                 )
-                .map(|(_, required)| required)
             },
         )
-        .and_then(|output| codex::load_bundle(&output))
+        .and_then(|output| codex::bundle::load_bundle(&output))
         .map(|b| (b.root_dir, vec![b.home])),
         Launch::Claude { statusline, .. } => claude_bundle::publish_claude_target(
             &input,
@@ -180,7 +179,7 @@ pub(super) fn materialize_and_emit(
             emitted
         }
         Launch::Codex { .. } => {
-            codex::load_bundle(&bundle_root)?;
+            codex::bundle::load_bundle(&bundle_root)?;
             // The shared home takes the task-invariant prompt; task-scoped
             // sections travel per invocation as developerInstructions.
             let (home_prompt, home_reminder) = match &plan.system_prompt {
@@ -195,9 +194,9 @@ pub(super) fn materialize_and_emit(
             };
             let project_id = plan.handle.project_id.clone().unwrap_or_default();
             let codex_home = if plan.codex_home_read_only {
-                codex::home_path(asp_home, &project_id, &target_name)
+                codex::runtime_home::home_path(asp_home, &project_id, &target_name)
             } else {
-                codex::prepare_runtime_home(&codex::Home {
+                codex::runtime_home::prepare_runtime_home(&codex::runtime_home::Home {
                     asp_home,
                     project_id: &project_id,
                     target_name: &target_name,
@@ -207,7 +206,7 @@ pub(super) fn materialize_and_emit(
                     hook_events: plan
                         .selection
                         .interactive()
-                        .then_some(&codex::TUI_HOOK_EVENTS[..]),
+                        .then_some(&codex::runtime_home::TUI_HOOK_EVENTS[..]),
                     system_prompt: home_prompt.as_deref(),
                     reminder: home_reminder.as_deref(),
                 })?

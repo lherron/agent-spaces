@@ -28,7 +28,7 @@ pub fn stage_space(plan: &SpacePlan, asp_home: &str, codex: bool) -> Result<Arti
         &format!("space-{}", sanitize_segment(&plan.input.key)),
     );
     if codex {
-        super::codex::materialize_space(plan, &dir)?;
+        super::codex::space::materialize_space(plan, &dir)?;
     } else {
         super::claude_plugin::materialize_space(plan, &dir)?;
     }

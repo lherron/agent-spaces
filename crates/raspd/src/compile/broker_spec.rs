@@ -99,7 +99,7 @@ pub(super) fn path_filter_scope(plan: &Plan) -> String {
             .and_then(J::as_str)
             .unwrap_or_default(),
     };
-    codex::home_path(&plan.asp_home, project_id, &plan.agent_name)
+    codex::runtime_home::home_path(&plan.asp_home, project_id, &plan.agent_name)
 }
 
 /// `composeAgentLocalEnv`'s lockedEnv: the adapter env, the agentchat env,

@@ -29,7 +29,7 @@ pub(super) fn preflight(plan: &Plan) -> Result<(), Fwd> {
                 .get("hrcPolicy")
                 .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?,
         )?;
-        codex::preflight_config(&plan.space_plans, plan.codex_options.as_ref())?;
+        codex::config::preflight_config(&plan.space_plans, plan.codex_options.as_ref())?;
         // validateInvocationInput judges a format only on an initial input
         // that exists (compiler_exception, after Bun's writes).
         let material = plan

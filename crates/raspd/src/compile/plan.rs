@@ -336,7 +336,7 @@ fn detect_harness(selection: &request::Selection) -> Result<String, Fwd> {
                     selection.model.clone(),
                 ));
             }
-            codex::detect()
+            codex::discovery::detect()
         }
     }
 }

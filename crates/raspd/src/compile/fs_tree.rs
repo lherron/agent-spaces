@@ -22,6 +22,18 @@ pub(super) fn write(path: &str, content: &str) -> Result<(), Fwd> {
     fs::write(path, content).map_err(io_fwd)
 }
 
+/// `readFileSync(path, 'utf8')`: lossy UTF-8.
+pub(super) fn read_text(path: &str) -> Result<String, Fwd> {
+    fs::read(path)
+        .map(|b| String::from_utf8_lossy(&b).into_owned())
+        .map_err(io_fwd)
+}
+
+/// `JSON.parse(readFileSync(path))`, refusing malformed JSON with `reason`.
+pub(super) fn read_json(path: &str, reason: crate::disposition::Reason) -> Result<J, Fwd> {
+    crate::json::parse(read_text(path)?.as_bytes()).ok_or_else(|| fwd(reason))
+}
+
 /// Pretty JSON plus the trailing newline Bun's writers add.
 pub(super) fn write_json(path: &str, value: &J) -> Result<(), Fwd> {
     write(path, &format!("{}\n", value.to_json_pretty()))

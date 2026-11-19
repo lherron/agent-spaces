@@ -23,7 +23,7 @@ const PROBE_TIMEOUT_MS: u64 = 3_000;
 const PROBE_OUTPUT_LIMIT: usize = 65_536;
 const CODEX_OPERATION_TIMEOUT_MS: u64 = 12_000;
 const CODEX_MAX_CANDIDATES: usize = 8;
-const MIN_CODEX_VERSION: [f64; 3] = [0.0, 124.0, 0.0];
+pub(crate) const MIN_CODEX_VERSION: [f64; 3] = [0.0, 124.0, 0.0];
 
 type Env = BTreeMap<String, String>;
 
@@ -445,7 +445,7 @@ fn codex_candidates(env: &Env) -> Vec<String> {
 }
 
 /// `value.match(/(\d+)\.(\d+)\.(\d+)/)`, leftmost.
-fn parse_semver(value: &str) -> Option<[f64; 3]> {
+pub(crate) fn parse_semver(value: &str) -> Option<[f64; 3]> {
     let b = value.as_bytes();
     let digits = |mut i: usize| {
         let start = i;
@@ -476,7 +476,7 @@ fn parse_semver(value: &str) -> Option<[f64; 3]> {
     None
 }
 
-fn compare_semver(left: [f64; 3], right: [f64; 3]) -> std::cmp::Ordering {
+pub(crate) fn compare_semver(left: [f64; 3], right: [f64; 3]) -> std::cmp::Ordering {
     for i in 0..3 {
         let difference = left[i] - right[i];
         if difference != 0.0 {
@@ -623,8 +623,11 @@ mod tests {
         assert_eq!(parse_semver("v1.2 then 3.4.5.6"), Some([3.0, 4.0, 5.0]));
         assert_eq!(parse_semver("a12.3.4"), Some([12.0, 3.0, 4.0]));
         assert_eq!(parse_semver("1.2."), None);
+        assert_eq!(parse_semver("codex-cli 0.157.1"), Some([0.0, 157.0, 1.0]));
+        assert_eq!(parse_semver("v1.2"), None);
         assert!(compare_semver([0.0, 124.0, 0.0], MIN_CODEX_VERSION).is_ge());
         assert!(compare_semver([0.0, 99.0, 9.0], MIN_CODEX_VERSION).is_lt());
+        assert!(compare_semver([0.0, 123.0, 9.0], MIN_CODEX_VERSION).is_lt());
     }
 
     #[test]

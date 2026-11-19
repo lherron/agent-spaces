@@ -136,7 +136,7 @@ async function newestMtimeMs(root: string): Promise<number> {
 /**
  * CODEX_HOME candidates under a scope root: the root (`<project>_<agent>`,
  * drivers/execution run-codex getProjectCodexRuntimeHomePath and raspd
- * compile/codex.rs home_path) and `<root>/home` (runtime-key roots,
+ * compile/codex/runtime_home.rs home_path) and `<root>/home` (runtime-key roots,
  * resolveCodexRuntimeHomePath).
  */
 const CODEX_HOME_CANDIDATES = ['', 'home']
