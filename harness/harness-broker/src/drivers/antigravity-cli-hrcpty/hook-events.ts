@@ -72,6 +72,7 @@ export function createAntigravityHookEvents(options: {
   const transcript = createAntigravityTranscript(ctx)
   const tools = new Map<number, Tool>()
   let turnNumber = 0
+  let humanSubmissions = 0
   let ready = false
   let closed = false
   let active: Turn | undefined
@@ -346,13 +347,19 @@ export function createAntigravityHookEvents(options: {
         },
         extra
       )
-      if (delivery?.inputId !== undefined) {
-        ctx.emit(
-          'submission.executed',
-          { submissionId: delivery.inputId, turnId: active.id },
-          extra
-        )
-      }
+      // Every executed prompt names its submission, as Claude's attribution
+      // does. A prompt the broker did not deliver (the launch prompt carried in
+      // argv, or text typed by an attached human) gets a minted id. HRC binds a
+      // launch-carried run only through this event.
+      ctx.emit(
+        'submission.executed',
+        {
+          submissionId:
+            delivery?.inputId ?? `human_submission_${ctx.invocationId}_${++humanSubmissions}`,
+          turnId: active.id,
+        },
+        extra
+      )
     }
 
     const turn = active
