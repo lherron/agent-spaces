@@ -5,8 +5,9 @@ import {
   readAll,
   runHookBridgeCli,
 } from '../hook-bridge-transport'
+import { parseHookDecision } from '../hook-callback/decision'
+import { buildHookEnvelopeFromEnv } from '../hook-callback/envelope'
 import { getHookEventName, queryMailHintDecision, queryMailStopDecision } from '../mail-stop-gate'
-import { buildHookEnvelopeFromEnv } from './hook-ingestion'
 
 /**
  * Broker-owned Claude hook bridge (H3). The `claude-code-tmux` driver installs
@@ -86,38 +87,17 @@ export async function runClaudeHookDecisionBridge(options: HookBridgeOptions): P
     ...envelope,
     ...(mailStopDecision !== undefined ? { mailStopDecision } : {}),
   })
-  const decision = parseClaudeHookDecisionResponse(response)
+  const decision = parseHookDecision(
+    response,
+    (reply) =>
+      typeof reply['decision'] === 'string' ||
+      typeof reply['continue'] === 'boolean' ||
+      typeof reply['stopReason'] === 'string' ||
+      typeof reply['suppressOutput'] === 'boolean'
+  )
   if (decision !== undefined) {
     stdout.write(JSON.stringify(decision))
   }
-}
-
-function parseClaudeHookDecisionResponse(raw: string): Record<string, unknown> | undefined {
-  const trimmed = raw.trim()
-  if (trimmed.length === 0 || trimmed === 'ok') {
-    return undefined
-  }
-  try {
-    const parsed = JSON.parse(trimmed) as unknown
-    if (!isRecord(parsed)) {
-      return undefined
-    }
-    if (
-      typeof parsed['decision'] === 'string' ||
-      typeof parsed['continue'] === 'boolean' ||
-      typeof parsed['stopReason'] === 'string' ||
-      typeof parsed['suppressOutput'] === 'boolean'
-    ) {
-      return parsed
-    }
-  } catch {
-    return undefined
-  }
-  return undefined
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /** CLI entrypoint: `harness-broker claude-hook --socket <path> [--event <name>]`. */
