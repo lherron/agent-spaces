@@ -237,6 +237,7 @@ verify:
 _verify-steps: build architecture-records check lint typecheck test cargo-check
 
 # Live state (max3: real agy and hrc-pty), so not part of verify; evidence lands under `out`.
+
 # Run the authenticated Antigravity regressions on this host.
 smoke-antigravity out: check-harness-selection-matrix
     HRC_PTY_BIN="${HRC_PTY_BIN:-$HOME/praesidium/var/hrc-owner/hrc-runtime-current/bin/hrc-pty}" bun scripts/admission-matrix.ts --row antigravity-cli-hrcpty --artifact-dir {{quote(out + "/admission")}}
