@@ -39,6 +39,9 @@ pub(in crate::compile) fn prepare(
     home: &str,
     bundle_root: &str,
 ) -> Result<(), Fwd> {
+    // agy identifies its current workspace by its physical path (e.g.
+    // /private/tmp on macOS). Trust that path before the child starts.
+    let trusted_workspace = fs::canonicalize(&plan.cwd).map_err(io_fwd)?;
     let lock = materialization_lock_path(&plan.asp_home, &format!("antigravity-{seat_key}"));
     with_lock(&lock, &MATERIALIZATION, || -> Result<(), Fwd> {
         let config = join(&[home, "config"]);
@@ -51,7 +54,10 @@ pub(in crate::compile) fn prepare(
         atomic_write(&join(&[&config, "AGENTS.md"]), prompt)?;
         sync_plugins(&join(&[bundle_root, "plugins"]), &config)?;
         let settings = J::obj([
-            ("trustedWorkspaces", J::Arr(vec![J::str(&plan.cwd)])),
+            (
+                "trustedWorkspaces",
+                J::Arr(vec![J::str(trusted_workspace.to_string_lossy())]),
+            ),
             (
                 "statusLine",
                 J::obj([

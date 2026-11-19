@@ -23,6 +23,7 @@ import {
 } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { AspcUnixClient } from 'spaces-aspc-protocol/unix-client'
 
 import {
   detectAgentLocalComponents,
@@ -42,6 +43,7 @@ import type {
 } from 'spaces-runtime-contracts'
 import { DEFAULT_CODEX_BROKER_INPUT_POLICY } from 'spaces-runtime-contracts'
 
+import { createAntigravityHrcptyDriver } from '../../../harness/harness-broker/src/drivers/antigravity-cli-hrcpty/driver'
 import { createDefaultClaudeCodeHrcptyDriver } from '../../../harness/harness-broker/src/drivers/claude-code-hrcpty/driver'
 import { createDefaultClaudeCodeTmuxDriver } from '../../../harness/harness-broker/src/drivers/claude-code-tmux/driver'
 import { createCodexAppServerDriver } from '../../../harness/harness-broker/src/drivers/codex-app-server/driver'
@@ -93,6 +95,7 @@ export type RowRecipe = {
  */
 export function buildMatrixDrivers(hookIpcDir: string): Driver[] {
   return [
+    createAntigravityHrcptyDriver(hookIpcDir),
     createDefaultClaudeCodeHrcptyDriver(hookIpcDir),
     createDefaultClaudeCodeTmuxDriver(hookIpcDir),
     createCodexAppServerDriver(),
@@ -252,6 +255,13 @@ function createFixture(kind: string, agentName: string, repoRoot: string): Fixtu
 // ---------------------------------------------------------------------------
 
 const REQUESTED: Record<string, RuntimeCompileRequest['requested']> = {
+  'antigravity-cli-hrcpty': {
+    harness: 'antigravity-hrcpty',
+    modelProvider: 'google',
+    model: 'gemini-3.8-flash',
+    reasoningEffort: 'low',
+    presentation: true,
+  },
   'codex-hrcpty': {
     harness: 'codex-hrcpty',
     modelProvider: 'openai-codex',
@@ -360,10 +370,7 @@ function compileRequest(input: {
         ? { mode: 'none' }
         : {
             mode: 'broker-reports-target',
-            targetKind:
-              input.kind === 'claude-code-hrcpty' || input.kind === 'codex-hrcpty'
-                ? 'hrcpty-socket'
-                : 'tmux-session',
+            targetKind: input.kind.endsWith('-hrcpty') ? 'hrcpty-socket' : 'tmux-session',
           },
       resourceLimits: { startupTimeoutMs: input.timeoutMs, turnTimeoutMs: input.timeoutMs },
       observability: { traceId: requestIdentity.traceId },
@@ -400,6 +407,29 @@ async function compileProfile(
   fixture: Fixture,
   request: RuntimeCompileRequest
 ): Promise<CompiledExecution> {
+  if (kind === 'antigravity-cli-hrcpty') {
+    const socketPath =
+      process.env['HRC_ASPD_SOCKET'] ?? join(homedir(), 'praesidium/var/aspd/run/aspd.sock')
+    const client = await AspcUnixClient.connect({
+      socketPath,
+      clientInfo: { name: 'admission-matrix', version: '2' },
+    })
+    try {
+      const response = await client.compileHarnessInvocation({
+        aspHome: fixture.aspHome,
+        compileRequest: request,
+      })
+      if (!response.ok) {
+        throw new Error(`raspd compile failed for ${kind}: ${JSON.stringify(response.diagnostics)}`)
+      }
+      if (response.plan.execution.driver !== kind) {
+        throw new Error(`compile emitted ${response.plan.execution.driver}, expected ${kind}`)
+      }
+      return response.plan.execution
+    } finally {
+      await client.close()
+    }
+  }
   const { createAgentSpacesClient } = await import('../../../compiler/agent-spaces/src/index.js')
   const client = createAgentSpacesClient({ aspHome: fixture.aspHome, runtime: compilerRuntime })
   const response = await client.compileRuntimePlan(request)
@@ -632,6 +662,28 @@ function compiledRecipe(input: {
 }
 
 export const ROW_RECIPES: Record<string, RowRecipe> = {
+  'antigravity-cli-hrcpty': compiledRecipe({
+    kind: 'antigravity-cli-hrcpty',
+    agentName: 'admission-antigravity',
+    terminal: 'hrcpty',
+    driver: (hookIpcDir) => createAntigravityHrcptyDriver(hookIpcDir),
+    probe: () => {
+      const agy = onPath('agy')
+      if (agy === undefined) return { available: false, reason: 'agy binary not found on PATH' }
+      const auth = Bun.spawnSync(
+        ['/usr/bin/security', 'find-generic-password', '-s', 'gemini', '-a', 'antigravity'],
+        { stdout: 'ignore', stderr: 'ignore' }
+      )
+      if (auth.exitCode !== 0)
+        return { available: false, reason: 'Antigravity sign-in keychain item not found' }
+      return (
+        hrcptyProbe() ?? {
+          available: true,
+          reason: `real agy at ${agy}, hrc-pty at ${resolveHrcptyBinary()}`,
+        }
+      )
+    },
+  }),
   // T-12166: the codex-app-server driver on an hrc-pty lease; no TUI until attach.
   'codex-hrcpty': compiledRecipe({
     kind: 'codex-hrcpty',

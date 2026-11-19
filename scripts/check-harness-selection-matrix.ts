@@ -29,6 +29,8 @@ type ExpectedRow = {
   requested?: Pick<HarnessSelectionRequest, 'harness' | 'presentation'>
   expected: {
     harness: string
+    modelProvider?: string
+    model?: string
     presentation: boolean
     driver: string
     executionTransport: string
@@ -174,6 +176,8 @@ const EXPECTED_ROWS: readonly ExpectedRow[] = [
       requested: { harness: 'antigravity-hrcpty', presentation },
       expected: {
         harness: 'antigravity-hrcpty',
+        modelProvider: 'google',
+        model: 'gemini-4-neon',
         presentation,
         driver: 'antigravity-cli-hrcpty',
         executionTransport: 'pty',
@@ -299,6 +303,8 @@ function checkRow(row: ExpectedRow): RowOutcome {
   }
   const actual: Record<string, string> = {
     harness: resolution.selection.harness,
+    modelProvider: resolution.selection.modelProvider,
+    model: resolution.selection.model,
     presentation: String(resolution.selection.presentation),
     driver: resolution.recipe.driver,
     executionTransport: resolution.recipe.hosting.executionTransport,
@@ -322,6 +328,9 @@ function checkRow(row: ExpectedRow): RowOutcome {
     ['presentationFulfillment', row.expected.presentationFulfillment],
     ['presentationSurface', row.expected.presentationSurface ?? '—'],
   ]
+  if (row.expected.modelProvider !== undefined)
+    expectedPairs.push(['modelProvider', row.expected.modelProvider])
+  if (row.expected.model !== undefined) expectedPairs.push(['model', row.expected.model])
   const mismatches = expectedPairs
     .filter(([field, want]) => actual[field] !== want)
     .map(([field, want]) => `${field}: expected ${want}, got ${actual[field]}`)

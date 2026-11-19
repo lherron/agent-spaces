@@ -231,10 +231,15 @@ smoke-live:
 # never pkill a verify (foundry R-00309, T-10388).
 
 # Run build, architecture, checks, lint, typecheck, and tests.
-verify:
-    bun scripts/verify-run.ts run -- {{just_executable()}} --justfile {{justfile()}} _verify-steps
+# On max3, pass an evidence directory to also run the authenticated Antigravity regressions.
+verify live-out="":
+    bun scripts/verify-run.ts run -- {{just_executable()}} --justfile {{justfile()}} _verify-steps {{if live-out == "" { "" } else { "_verify-antigravity-regressions " + quote(live-out) } }}
 
 _verify-steps: build architecture-records check lint typecheck test cargo-check
+
+_verify-antigravity-regressions out: check-harness-selection-matrix
+    HRC_PTY_BIN="${HRC_PTY_BIN:-$HOME/praesidium/var/hrc-owner/hrc-runtime-current/bin/hrc-pty}" bun scripts/admission-matrix.ts --row antigravity-cli-hrcpty --artifact-dir {{quote(out + "/admission")}}
+    HRC_PTY_BIN="${HRC_PTY_BIN:-$HOME/praesidium/var/hrc-owner/hrc-runtime-current/bin/hrc-pty}" bun scripts/hrcpty-driver-live-e2e.ts --out {{quote(out + "/claude")}}
 
 # Cancel the running `just verify` (another scope's run needs --force).
 verify-cancel *args:

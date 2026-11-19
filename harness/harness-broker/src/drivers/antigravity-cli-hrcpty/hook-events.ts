@@ -340,7 +340,7 @@ export function createAntigravityHookEvents(options: {
         {
           turnId: active.id,
           inputId: active.inputId,
-          source: delivery === undefined ? 'observed' : 'broker-delivery',
+          source: 'hook-observed',
           sessionId: conversationId,
           prompt,
         },
