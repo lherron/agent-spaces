@@ -1,4 +1,5 @@
 import type {
+  ANTIGRAVITY_MODEL_IDS,
   CompiledExecution,
   CompiledRuntimePlan,
   CompiledRuntimePlanRecord,
@@ -48,7 +49,23 @@ type _NoV1CompileSchemas = Expect<
 >
 
 type _HarnessIdIsClosed = Expect<
-  Equal<HarnessId, 'agent-harness' | 'claude' | 'claude-hrcpty' | 'codex' | 'codex-hrcpty' | 'muse'>
+  Equal<
+    HarnessId,
+    | 'agent-harness'
+    | 'claude'
+    | 'claude-hrcpty'
+    | 'codex'
+    | 'codex-hrcpty'
+    | 'antigravity-hrcpty'
+    | 'muse'
+  >
+>
+
+type _AntigravityModelsUseBaseSlugs = Expect<
+  Equal<
+    typeof ANTIGRAVITY_MODEL_IDS,
+    readonly ['gemini-4-neon', 'gemini-4-argon', 'gemini-4-hydrogen', 'gemini-3.8-flash']
+  >
 >
 
 // The supervisor endpoint is a socket, with no tmux pane coordinates.

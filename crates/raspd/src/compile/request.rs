@@ -676,11 +676,19 @@ impl Selection {
 /// The two recipes raspd compiles natively.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Harness {
+    Antigravity,
     /// claude-code (claude-code-tmux).
     Claude,
     /// codex-app-server, presented (codex-tui) or headless.
     Codex,
 }
+
+const ANTIGRAVITY_MODELS: [&str; 4] = [
+    "gemini-4-neon",
+    "gemini-4-argon",
+    "gemini-4-hydrogen",
+    "gemini-3.8-flash",
+];
 
 const CODEX_MODELS: [&str; 9] = [
     "gpt-5.6-terra",
@@ -779,9 +787,18 @@ pub fn resolve_selection(req: &J, profile: &Profile, target: Option<&J>) -> Resu
         .as_ref()
         .and_then(|(v, _)| v.as_str())
         .unwrap_or("agent-harness");
-    let hrcpty = matches!(harness_id, "claude-hrcpty" | "codex-hrcpty");
+    let hrcpty = matches!(
+        harness_id,
+        "claude-hrcpty" | "codex-hrcpty" | "antigravity-hrcpty"
+    );
     let (kind, default_provider, default_model, models): (Harness, &str, &str, &[&str]) =
         match harness_id {
+            "antigravity-hrcpty" => (
+                Harness::Antigravity,
+                "google",
+                ANTIGRAVITY_MODELS[0],
+                &ANTIGRAVITY_MODELS,
+            ),
             "claude" | "claude-hrcpty" => {
                 (Harness::Claude, "anthropic", "opus[1m]", &CLAUDE_MODELS)
             }

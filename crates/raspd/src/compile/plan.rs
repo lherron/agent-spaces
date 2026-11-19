@@ -47,13 +47,18 @@ pub(super) struct Plan {
     pub(super) effective_environment_hash: String,
     pub(super) correlation_env: Vec<(String, String)>,
     pub(super) tool_warnings: Vec<String>,
-    /// `materializeCodexRuntimeHome: false` (an inspection compile): the
-    /// codex runtime home's path, never its write.
-    pub(super) codex_home_read_only: bool,
+    /// Inspections compute the runtime home's path without writing to it.
+    pub(super) runtime_home_read_only: bool,
 }
 
 /// The harness-specific half of a plan.
 pub(super) enum Launch {
+    Antigravity {
+        path: String,
+        seat_key: String,
+        hooks: J,
+        hook_bin_dir: String,
+    },
     Claude {
         defaults: ClaudeDefaults,
         path: String,
@@ -174,7 +179,16 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
     let effective_priming = provisioning::effective_priming(&profile, &agent_root, project_target)?;
     let compose = provisioning::compose(&profile.raw, src.run_mode.as_deref(), project_target);
     let claude = provisioning::claude_defaults(&profile, project_target);
-    let codex_defaults = provisioning::codex_defaults(&profile, project_target, claude.yolo)?;
+    if selection.harness == request::Harness::Antigravity
+        && !super::antigravity::bypass_enabled(&src.req, claude.yolo)
+    {
+        return Err(fwd(crate::reason!(
+            "antigravity_permission_mode_unsupported"
+        )));
+    }
+    let codex_defaults = (selection.harness != request::Harness::Antigravity)
+        .then(|| provisioning::codex_defaults(&profile, project_target, claude.yolo))
+        .transpose()?;
     let resolved_bundle = bundle_audit::resolved_bundle(&BundleInput {
         placement: &src.placement,
         raw_profile: &profile.raw,
@@ -233,6 +247,11 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
         &agent_root,
         src.project_root.as_deref(),
         &registry,
+        if harness == request::Harness::Antigravity {
+            super::antigravity::HARNESS_ID
+        } else {
+            super::bundle_publish::DEFAULT_HARNESS
+        },
     )?;
     let codex_options = provisioning::fingerprint_codex_options(
         src.project_root.as_deref(),
@@ -280,13 +299,20 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
     phases.lap("system-prompt");
 
     let launch = match harness {
+        request::Harness::Antigravity => Launch::Antigravity {
+            path: launch_path,
+            seat_key: super::antigravity::runtime_home::seat_key(&src.placement)
+                .unwrap_or_else(|| bundle_identity.clone()),
+            hooks: super::antigravity::hooks::bridge(),
+            hook_bin_dir: release_binding::antigravity_hook_bin_dir(release)?,
+        },
         request::Harness::Claude => Launch::Claude {
             defaults: claude,
             path: launch_path,
             statusline: release_binding::release_statusline(release)?,
         },
         request::Harness::Codex => Launch::Codex {
-            defaults: codex_defaults,
+            defaults: codex_defaults.expect("Codex compile prepared its defaults"),
             path: launch_path,
         },
     };
@@ -319,7 +345,7 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
         effective_environment_hash: prep.effective_environment_hash,
         correlation_env: prep.correlation_env,
         tool_warnings,
-        codex_home_read_only: false,
+        runtime_home_read_only: false,
     })
 }
 
@@ -327,6 +353,10 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
 /// adapter's detection for a model in its list.
 fn detect_harness(selection: &request::Selection) -> Result<String, Fwd> {
     match selection.harness {
+        request::Harness::Antigravity => {
+            super::antigravity::find_binary(super::util::exec_environment())
+                .ok_or_else(|| fwd(crate::reason!("antigravity_not_found")))
+        }
         request::Harness::Claude => find_claude(),
         request::Harness::Codex => {
             // planPlacementRuntime throws for a model outside the adapter's list.
@@ -428,6 +458,7 @@ fn plan_identity(placement: &J, handle: &Handle, harness: request::Harness) -> J
             J::str(match harness {
                 request::Harness::Claude => "claude-code",
                 request::Harness::Codex => "codex-cli",
+                request::Harness::Antigravity => super::antigravity::FRONTEND,
             }),
         ),
     ])
@@ -526,6 +557,7 @@ fn plan_spaces(
     agent_root: &str,
     project_root: Option<&str>,
     registry: &str,
+    harness_id: &str,
 ) -> Result<Vec<space_plan::SpacePlan>, Fwd> {
     let mut space_plans = vec![];
     for space in &closure.spaces {
@@ -548,6 +580,7 @@ fn plan_spaces(
                 content_dir,
             },
             &lock_plugin,
+            harness_id,
         )?);
     }
     Ok(space_plans)

@@ -2,7 +2,6 @@
 //! merged with the lock's plugin identity, the harness-support skip, and the
 //! hooks.toml and permissions.toml staging will read, judged before anything
 //! is written.
-use super::bundle_publish::DEFAULT_HARNESS;
 use super::fs_tree::{is_dir_follow, is_file_follow};
 use super::{Fwd, fwd};
 use crate::json::J;
@@ -27,12 +26,17 @@ pub struct SpacePlan {
     pub manifest: J,
     pub hooks: Option<Vec<J>>,
     pub permissions: Option<J>,
+    pub antigravity_mcp: Option<J>,
 }
 
 /// Judge everything staging a space reads, before anything is written.
 /// `None`: the space does not declare the harness and is not materialized
 /// (plugin-artifacts.ts harness-skip; the lock keeps it).
-pub fn plan_space(input: SpaceInput, lock_plugin: &J) -> Result<Option<SpacePlan>, Fwd> {
+pub fn plan_space(
+    input: SpaceInput,
+    lock_plugin: &J,
+    harness_id: &str,
+) -> Result<Option<SpacePlan>, Fwd> {
     let toml_path = join(&[&input.content_dir, "space.toml"]);
     // readSpaceToml failures fall back to the lock's plugin identity.
     let parsed = super::spaces::read_manifest(&toml_path).ok();
@@ -50,7 +54,7 @@ pub fn plan_space(input: SpaceInput, lock_plugin: &J) -> Result<Option<SpacePlan
     if let Some(supports) = manifest.get("harness").and_then(|h| h.get("supports"))
         && !supports
             .as_arr()
-            .is_some_and(|s| s.iter().any(|h| h.as_str() == Some(DEFAULT_HARNESS)))
+            .is_some_and(|s| s.iter().any(|h| h.as_str() == Some(harness_id)))
     {
         return Ok(None);
     }
@@ -68,11 +72,17 @@ pub fn plan_space(input: SpaceInput, lock_plugin: &J) -> Result<Option<SpacePlan
     } else {
         None
     };
+    let antigravity_mcp = if harness_id == super::antigravity::HARNESS_ID {
+        super::antigravity::plugins::project_mcp(&input.content_dir)?
+    } else {
+        None
+    };
     Ok(Some(SpacePlan {
         input,
         manifest,
         hooks,
         permissions,
+        antigravity_mcp,
     }))
 }
 

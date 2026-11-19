@@ -332,10 +332,11 @@ fn valid_capability(params: Option<&J>) -> bool {
     })
 }
 
-const BROKER_DRIVERS: [&str; 8] = [
+const BROKER_DRIVERS: [&str; 9] = [
     "codex-app-server",
     "claude-code-tmux",
     "claude-code-hrcpty",
+    "antigravity-cli-hrcpty",
     "codex-cli-tmux",
     "pi-tui-tmux",
     "pi-sdk",
@@ -356,7 +357,10 @@ fn valid_observe(params: Option<&J>) -> bool {
     let continuation_ok = is_str(c.get("provider"))
         && is_str(c.get("key"))
         && (c.get("artifactFormat").is_none()
-            || is_enum(c.get("artifactFormat"), &["claude", "codex", "pi"]))
+            || is_enum(
+                c.get("artifactFormat"),
+                &["claude", "codex", "pi", "antigravity"],
+            ))
         && only(c, &["provider", "key", "artifactFormat"]);
     let historical_ok = match opt_rec(request.get("historicalExecution")) {
         Err(()) => false,

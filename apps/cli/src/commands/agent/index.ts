@@ -100,13 +100,14 @@ function resolveForegroundProcessSelection(
   }
 
   const implementation = HARNESS_CATALOG[resolution.selection.harness].processImplementation
-  if (implementation === undefined) {
+  if (implementation === undefined || implementation.provider === 'google') {
     throw new Error(
       `Harness "${resolution.selection.harness}" has no direct foreground process implementation; use hosted v2 compilation instead.`
     )
   }
   return {
-    ...implementation,
+    frontend: implementation.frontend,
+    provider: implementation.provider,
     model: resolution.selection.model,
     presentation: resolution.selection.presentation,
   }

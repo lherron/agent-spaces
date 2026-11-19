@@ -31,6 +31,7 @@ export type HarnessId =
   | 'claude-hrcpty'
   | 'codex'
   | 'codex-hrcpty'
+  | 'antigravity-hrcpty'
   | 'muse'
 
 export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh'

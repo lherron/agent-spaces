@@ -131,10 +131,10 @@
       "properties": {
         "supports": {
           "type": "array",
-          "description": "List of supported canonical harnesses (agent-harness, claude, claude-hrcpty, codex, codex-hrcpty, muse)",
+          "description": "List of supported canonical harnesses (agent-harness, claude, claude-hrcpty, codex, codex-hrcpty, antigravity-hrcpty, muse)",
           "items": {
             "type": "string",
-            "enum": ["agent-harness", "claude", "claude-hrcpty", "codex", "codex-hrcpty", "muse"]
+            "enum": ["agent-harness", "claude", "claude-hrcpty", "codex", "codex-hrcpty", "antigravity-hrcpty", "muse"]
           },
           "uniqueItems": true
         }

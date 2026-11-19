@@ -64,7 +64,14 @@ export type SessionState = 'running' | 'complete' | 'error'
 export interface BuildHarnessBrokerInvocationRequest {
   placement: RuntimePlacement
   provider: ProviderDomain
-  frontend: 'codex-cli' | 'claude-code' | 'pi-cli' | 'pi-sdk' | 'agent-harness-tui' | 'muse-cli'
+  frontend:
+    | 'codex-cli'
+    | 'claude-code'
+    | 'pi-cli'
+    | 'pi-sdk'
+    | 'agent-harness-tui'
+    | 'muse-cli'
+    | 'antigravity-cli'
   interactionMode: 'headless' | 'interactive'
   brokerDriver?:
     | 'codex-app-server'

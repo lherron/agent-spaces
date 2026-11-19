@@ -1,7 +1,21 @@
-import type { HarnessId } from 'spaces-runtime-contracts'
-import type { HarnessDefinition } from './types.js'
+import { ANTIGRAVITY_MODEL_IDS, type HarnessId } from 'spaces-runtime-contracts'
+import type { ExecutionRecipe, HarnessDefinition } from './types.js'
 
 const broker = 'harness-broker/0.2' as const
+
+const antigravityRecipe: ExecutionRecipe = {
+  recipeId: 'antigravity-cli',
+  builder: 'antigravity-cli-hrcpty',
+  driver: 'antigravity-cli-hrcpty',
+  protocol: broker,
+  hosting: {
+    executionTransport: 'pty',
+    terminalRequired: true,
+    terminalHost: 'hrcpty',
+    processExecution: 'supervisor-process',
+  },
+  presentationFulfillment: 'intrinsic',
+}
 
 /** The only ordinary-selection harness default. */
 export const DEFAULT_HARNESS_ID: HarnessId = 'agent-harness'
@@ -278,6 +292,23 @@ export const HARNESS_CATALOG: Readonly<Record<HarnessId, HarnessDefinition>> = {
       },
     },
     processImplementation: { frontend: 'codex-cli', provider: 'openai' },
+  },
+  'antigravity-hrcpty': {
+    id: 'antigravity-hrcpty',
+    defaultModelProvider: 'google',
+    supportedModelProviders: [
+      {
+        id: 'google',
+        defaultModel: ANTIGRAVITY_MODEL_IDS[0],
+        supportedModels: ANTIGRAVITY_MODEL_IDS,
+      },
+    ],
+    presentationDefault: true,
+    executionVariants: {
+      withoutPresentation: antigravityRecipe,
+      withPresentation: antigravityRecipe,
+    },
+    processImplementation: { frontend: 'antigravity-cli', provider: 'google' },
   },
   muse: {
     id: 'muse',

@@ -20,6 +20,7 @@ const EXPECTED_IDS = [
   'claude-hrcpty',
   'codex',
   'codex-hrcpty',
+  'antigravity-hrcpty',
   'muse',
 ] as const
 
@@ -56,7 +57,7 @@ function wireRequest(harness: (typeof EXPECTED_IDS)[number]) {
 }
 
 describe('repository harness-selection projections', () => {
-  test('protocol, config, profile, target, and catalog expose the same six IDs', () => {
+  test('protocol, config, profile, target, and catalog expose the same seven IDs', () => {
     expect([...catalogHarnessIds()]).toEqual(EXPECTED_IDS)
     expect([...CONFIG_HARNESS_IDS]).toEqual(EXPECTED_IDS)
     expect(catalogCapabilities().map(({ id }) => id)).toEqual(EXPECTED_IDS)
@@ -90,6 +91,7 @@ describe('repository harness-selection projections', () => {
       recipe: { driver: 'agent-harness-tmux' },
     })
     expect(catalogCapabilities().map(({ presentationDefault }) => presentationDefault)).toEqual([
+      true,
       true,
       true,
       true,

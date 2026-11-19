@@ -72,7 +72,7 @@ pub(super) fn hrc_hooks_config(events: &[&str]) -> J {
 }
 
 /// `/^(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/`.
-fn safe_hook_path(p: &str) -> bool {
+pub(in crate::compile) fn safe_hook_path(p: &str) -> bool {
     !p.is_empty()
         && p.chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '-'))

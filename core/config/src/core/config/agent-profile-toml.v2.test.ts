@@ -146,6 +146,7 @@ status_line = ["model", "cwd"]
       'claude-hrcpty',
       'codex',
       'codex-hrcpty',
+      'antigravity-hrcpty',
       'muse',
     ]) {
       expect(

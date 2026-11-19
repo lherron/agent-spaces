@@ -10,12 +10,13 @@ export type SchemaVersion =
   | 'runtime-public-view/v1'
   | 'harness-broker.invocation/v1'
 
-export type ProviderDomain = 'anthropic' | 'openai' | 'meta'
-export type HarnessFamily = 'claude-code' | 'codex' | 'pi' | 'muse'
+export type ProviderDomain = 'anthropic' | 'openai' | 'meta' | 'google'
+export type HarnessFamily = 'claude-code' | 'codex' | 'pi' | 'muse' | 'antigravity'
 export type HarnessRuntime =
   | 'claude-code-cli'
   | 'claude-agent-sdk'
   | 'codex-cli'
+  | 'antigravity-cli'
   // Muse CLI, served through the `muse-serve` broker driver over MSP stdio
   // (campaign P-00522): a real CLI runtime under the `muse` family.
   | 'muse-cli'

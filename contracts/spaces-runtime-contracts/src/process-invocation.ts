@@ -16,6 +16,7 @@ export type ProcessHarnessFrontend =
   | 'codex-cli'
   | 'pi-cli'
   | 'muse-cli'
+  | 'antigravity-cli'
 export type IoMode = ProcessIoMode
 export type HarnessFrontend = ProcessHarnessFrontend
 export interface ProcessRuntimePlacement {

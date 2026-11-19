@@ -18,6 +18,7 @@ describe('getHarnessCapabilities', () => {
       'claude-hrcpty',
       'codex',
       'codex-hrcpty',
+      'antigravity-hrcpty',
       'muse',
     ])
 

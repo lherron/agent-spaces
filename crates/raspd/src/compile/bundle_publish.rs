@@ -23,6 +23,8 @@ pub const DEFAULT_HARNESS: &str = "agent-harness";
 pub const TARGET_MATERIALIZER_VERSION: &str = "target-materializer-v8-claude-no-suggestions-recap";
 
 pub struct TargetInput<'a> {
+    pub harness_id: &'a str,
+    pub generated_hooks: Option<&'a J>,
     pub target_name: &'a str,
     pub identity: &'a J,
     pub lock_target: &'a J,
@@ -80,7 +82,7 @@ pub fn fingerprint(input: &TargetInput, artifacts: &[Artifact], hashes: &[String
     let arr = |k: &str| input.lock_target.get(k).cloned().unwrap_or(J::Arr(vec![]));
     let mut material = J::obj([
         ("schemaVersion", J::str(TARGET_MATERIALIZER_VERSION)),
-        ("harnessId", J::str(DEFAULT_HARNESS)),
+        ("harnessId", J::str(input.harness_id)),
         ("targetName", J::str(input.target_name)),
         ("identity", input.identity.clone()),
         ("compose", arr("compose")),
@@ -118,6 +120,9 @@ pub fn fingerprint(input: &TargetInput, artifacts: &[Artifact], hashes: &[String
     if let Some(codex) = input.codex_options {
         material.set("codexOptions", codex.clone());
     }
+    if let Some(hooks) = input.generated_hooks {
+        material.set("generatedHooks", hooks.clone());
+    }
     sha256_hex(canonicalize(&material, false).as_bytes())
 }
 
@@ -154,7 +159,7 @@ fn manifest(input: &TargetInput, fingerprint: &str, mut required: Vec<String>) -
         ("complete", J::Bool(true)),
         ("materializerVersion", J::str(TARGET_MATERIALIZER_VERSION)),
         ("fingerprint", J::str(fingerprint)),
-        ("harnessId", J::str(DEFAULT_HARNESS)),
+        ("harnessId", J::str(input.harness_id)),
         ("targetName", J::str(input.target_name)),
     ]);
     manifest.set("identity", input.identity.clone());

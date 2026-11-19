@@ -19,16 +19,14 @@
  * matches. A mismatch prints the input row plus expected and actual fields
  * and exits nonzero.
  */
+import type { HarnessSelectionRequest } from 'spaces-runtime-contracts'
 import { resolveHarnessExecution } from '../compiler/agent-spaces/src/harness-selection/resolve.ts'
 
 type ExpectedRow = {
   /** Human label for the table. */
   name: string
   /** Selection inputs. Omitted keys exercise catalog defaults. */
-  requested?: {
-    harness?: 'agent-harness' | 'claude' | 'claude-hrcpty' | 'codex' | 'codex-hrcpty' | 'muse'
-    presentation?: boolean
-  }
+  requested?: Pick<HarnessSelectionRequest, 'harness' | 'presentation'>
   expected: {
     harness: string
     presentation: boolean
@@ -170,6 +168,22 @@ const EXPECTED_ROWS: readonly ExpectedRow[] = [
       presentationSurface: '{"terminalHost":"hrcpty","transport":"websocket-unix"}',
     },
   },
+  ...[false, true].map(
+    (presentation): ExpectedRow => ({
+      name: `antigravity-hrcpty / presentation=${presentation}`,
+      requested: { harness: 'antigravity-hrcpty', presentation },
+      expected: {
+        harness: 'antigravity-hrcpty',
+        presentation,
+        driver: 'antigravity-cli-hrcpty',
+        executionTransport: 'pty',
+        terminalRequired: true,
+        terminalHost: 'hrcpty',
+        processExecution: 'supervisor-process',
+        presentationFulfillment: 'intrinsic',
+      },
+    })
+  ),
   {
     name: 'codex / no presentation',
     requested: { harness: 'codex', presentation: false },
@@ -355,7 +369,9 @@ const widths = headers.map((header, column) =>
 const formatLine = (cells: string[]): string =>
   cells.map((cell, column) => padEnd(cell, widths[column] ?? cell.length)).join(' | ')
 
-console.log('resolver capability matrix (expected 13 rows, independent fixture)')
+console.log(
+  `resolver capability matrix (expected ${EXPECTED_ROWS.length} rows, independent fixture)`
+)
 console.log(formatLine(headers))
 console.log(widths.map((width) => '-'.repeat(width)).join('-|-'))
 for (const cells of tableRows) console.log(formatLine(cells))

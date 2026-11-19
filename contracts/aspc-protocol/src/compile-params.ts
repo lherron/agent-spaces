@@ -31,6 +31,7 @@ const HARNESS_IDS = [
   'claude-hrcpty',
   'codex',
   'codex-hrcpty',
+  'antigravity-hrcpty',
   'muse',
 ] as const
 const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh'] as const

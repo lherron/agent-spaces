@@ -12,8 +12,8 @@ use super::temp_lifecycle::{materialization_lock_path, sweep_temp, write_prompt_
 use super::util::{self, sanitize_segment, sha256_hex};
 use super::workspace_trust::workspace_trust;
 use super::{
-    Fwd, Phases, codex, emit_claude, emit_codex, fwd, lock_fwd, lock_schema, lockfile, path_filter,
-    spaces, stage,
+    Fwd, Phases, antigravity, codex, emit_antigravity, emit_claude, emit_codex, fwd, lock_fwd,
+    lock_schema, lockfile, path_filter, spaces, stage,
 };
 use crate::json::J;
 use crate::reads::jspath::{basename, dirname, join, resolve};
@@ -39,7 +39,6 @@ pub(super) fn materialize_and_emit(
     write_global_lock(asp_home, &plan.lock_path, &new_lock)?;
 
     // Plugin artifacts, the agent-local plugin, then the bundle.
-    let codex = matches!(plan.launch, Launch::Codex { .. });
     let mut artifacts = vec![];
     let mut permissions = vec![];
     let cleanup = |artifacts: &Vec<stage::Artifact>| {
@@ -48,7 +47,7 @@ pub(super) fn materialize_and_emit(
         }
     };
     for sp in &plan.space_plans {
-        match stage::stage_space(sp, asp_home, codex) {
+        match stage::stage_space(sp, asp_home, plan.selection.harness) {
             Ok(a) => {
                 artifacts.push(a);
                 permissions.push(sp.permissions.clone());
@@ -89,24 +88,52 @@ pub(super) fn materialize_and_emit(
         .cloned()
         .unwrap_or(J::Null);
     let identity_of = |k: &str| plan.identity.get(k).and_then(J::as_str).unwrap_or_default();
+    let (public_scope_root, harness_id, generated_hooks) =
+        if let Launch::Antigravity {
+            seat_key, hooks, ..
+        } = &plan.launch
+        {
+            (
+                antigravity::runtime_home::artifact_scope(asp_home, seat_key),
+                antigravity::HARNESS_ID,
+                Some(hooks),
+            )
+        } else {
+            (
+                join(&[
+                    asp_home,
+                    "codex-homes",
+                    &format!(
+                        "{}_{}",
+                        sanitize_segment(identity_of("projectId")),
+                        sanitize_segment(identity_of("agentId"))
+                    ),
+                ]),
+                bundle_publish::DEFAULT_HARNESS,
+                None,
+            )
+        };
     let input = TargetInput {
+        harness_id,
+        generated_hooks,
         target_name: &target_name,
         identity: &plan.identity,
         lock_target: &lock_target,
         codex_options: plan.codex_options.as_ref(),
         path_exclude: spaces::path_exclude(&plan.closure),
-        public_scope_root: join(&[
-            asp_home,
-            "codex-homes",
-            &format!(
-                "{}_{}",
-                sanitize_segment(identity_of("projectId")),
-                sanitize_segment(identity_of("agentId"))
-            ),
-        ]),
+        public_scope_root,
     };
     let fingerprint = bundle_publish::fingerprint(&input, &artifacts, &hashes);
     let published = match &plan.launch {
+        Launch::Antigravity { hooks, .. } => bundle_publish::publish_target(
+            &input,
+            &artifacts,
+            &fingerprint,
+            asp_home,
+            "antigravity",
+            |output, _| antigravity::plugins::compose(&artifacts, output, hooks),
+        )
+        .map(|output| (output, vec![])),
         Launch::Codex { .. } => bundle_publish::publish_target(
             &input,
             &artifacts,
@@ -155,10 +182,29 @@ pub(super) fn materialize_and_emit(
     path_filter::prepare(
         &path_filter_scope(&plan),
         &input.path_exclude,
-        !plan.codex_home_read_only,
+        !plan.runtime_home_read_only,
     )?;
 
     match &plan.launch {
+        Launch::Antigravity { seat_key, .. } => {
+            let home = antigravity::runtime_home::home_path(asp_home, seat_key);
+            if !plan.runtime_home_read_only {
+                antigravity::runtime_home::prepare(&plan, seat_key, &home, &bundle_root)?;
+            }
+            phases.lap("antigravity-home");
+            let (tool_env, path_prepend) = agent_tool_env(&plan)?;
+            let emitted = emit_antigravity::emit(
+                &plan,
+                release,
+                &bundle_root,
+                &home,
+                system_prompt_path,
+                tool_env,
+                path_prepend,
+            );
+            phases.lap("emit");
+            emitted
+        }
         Launch::Claude { .. } => {
             let bundle = claude_bundle::load_bundle(&bundle_root)?;
             // Workspace trust for the launch cwd (warnings, never failures).
@@ -193,7 +239,7 @@ pub(super) fn materialize_and_emit(
                 },
             };
             let project_id = plan.handle.project_id.clone().unwrap_or_default();
-            let codex_home = if plan.codex_home_read_only {
+            let codex_home = if plan.runtime_home_read_only {
                 codex::runtime_home::home_path(asp_home, &project_id, &target_name)
             } else {
                 codex::runtime_home::prepare_runtime_home(&codex::runtime_home::Home {

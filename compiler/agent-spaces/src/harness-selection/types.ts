@@ -12,6 +12,7 @@ export type BuilderId =
   | 'agent-harness-tmux'
   | 'claude-code-tmux'
   | 'claude-code-hrcpty'
+  | 'antigravity-cli-hrcpty'
   | 'codex-app-server'
   | 'muse-serve'
   | 'muse-cli-tmux'
@@ -45,7 +46,7 @@ export type ExplicitRefusal = {
  * selection vocabulary.
  */
 export type ProcessImplementation = {
-  frontend: 'claude-code' | 'codex-cli' | 'muse-cli'
+  frontend: 'claude-code' | 'codex-cli' | 'muse-cli' | 'antigravity-cli'
   provider: ProviderDomain
 }
 

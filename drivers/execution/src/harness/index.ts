@@ -4,6 +4,7 @@
  * Provides the harness adapter pattern for multi-harness support.
  */
 
+export { antigravityAdapter } from './antigravity.js'
 export { HarnessRegistry, SessionRegistry } from 'spaces-runtime'
 export { ClaudeAdapter, claudeAdapter } from 'spaces-harness-claude'
 export { CodexAdapter, codexAdapter } from 'spaces-harness-codex'
@@ -36,6 +37,8 @@ import { museAdapter } from 'spaces-harness-muse'
 import { piAdapter as agentHarnessAdapter } from 'spaces-harness-pi'
 import { HarnessRegistry, SessionRegistry, setSessionRegistry } from 'spaces-runtime'
 
+import { antigravityAdapter } from './antigravity.js'
+
 export const harnessRegistry = new HarnessRegistry()
 export const sessionRegistry = new SessionRegistry()
 
@@ -60,3 +63,4 @@ harnessRegistry.register(new CodexHrcptyAdapter())
 // Muse harness adapter registered eagerly (T-08591; no session factory —
 // `muse exec` is a one-shot CLI driven through buildRunArgs).
 harnessRegistry.register(museAdapter)
+harnessRegistry.register(antigravityAdapter)

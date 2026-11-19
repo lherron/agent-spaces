@@ -413,7 +413,7 @@ fn inspect(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd>
     };
     if !matches!(
         harness.as_str(),
-        "claude" | "claude-hrcpty" | "codex" | "codex-hrcpty"
+        "claude" | "claude-hrcpty" | "codex" | "codex-hrcpty" | "antigravity-hrcpty"
     ) {
         return Err(fwd_at(crate::reason!("inspect_harness"), harness));
     }
@@ -655,6 +655,7 @@ fn evaluate(
     let provider = match harness {
         "claude" | "claude-hrcpty" => "anthropic",
         "codex" | "codex-hrcpty" => "openai-codex",
+        "antigravity-hrcpty" => "google",
         _ => return Err(fwd_at(crate::reason!("inspect_harness"), harness.into())),
     };
     let paths = evaluation_context
@@ -709,7 +710,7 @@ fn evaluate(
         Ok(plan) => plan,
         Err(f) => return Err(f),
     };
-    plan.codex_home_read_only = true;
+    plan.runtime_home_read_only = true;
     super::preflight::preflight(&plan)?;
     let compiled = materialize_and_emit(plan, release, phases)?;
     let runtime_plan = compiled.get("plan").cloned().unwrap_or(J::Null);
@@ -921,9 +922,8 @@ fn inspection_compile_request(
             "materialization",
             J::obj([("initialPrompt", J::str(initial_prompt))]),
         ),
-        (
-            "hrcPolicy",
-            J::obj([
+        ("hrcPolicy", {
+            let mut policy = J::obj([
                 (
                     "permissionPolicy",
                     J::obj([("mode", J::str("deny")), ("audit", J::Bool(true))]),
@@ -937,8 +937,12 @@ fn inspection_compile_request(
                         ("requireBrokerDefaultForCodexHeadless", J::Bool(true)),
                     ]),
                 ),
-            ]),
-        ),
+            ]);
+            if harness == "antigravity-hrcpty" {
+                policy.remove("permissionPolicy");
+            }
+            policy
+        }),
         (
             "correlation",
             J::obj([

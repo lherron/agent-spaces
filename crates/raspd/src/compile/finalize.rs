@@ -48,9 +48,13 @@ fn recipe_dto(selection: &request::Selection) -> J {
         dto.set("presentationFulfillment", J::str("attachable"));
         return dto;
     }
+    let (recipe_id, driver) = match selection.harness {
+        request::Harness::Antigravity => (super::antigravity::FRONTEND, super::antigravity::DRIVER),
+        _ => ("claude-code", claude_driver(hrcpty)),
+    };
     J::obj([
-        ("recipeId", J::str("claude-code")),
-        ("driver", J::str(claude_driver(hrcpty))),
+        ("recipeId", J::str(recipe_id)),
+        ("driver", J::str(driver)),
         ("protocol", J::str("harness-broker/0.2")),
         (
             "hosting",
@@ -100,6 +104,7 @@ pub(super) fn finalize(
         .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?;
     let codex = plan.selection.harness == request::Harness::Codex;
     let recipe = recipe_dto(&plan.selection);
+    let worker = s(recipe.get("driver")).unwrap_or_default().to_owned();
     let recipe_id = s(recipe.get("recipeId")).unwrap_or_default().to_owned();
     let neutral = neutral_start_request(&start_request);
     let spec = neutral.get("spec").cloned().unwrap_or(J::Null);
@@ -188,7 +193,7 @@ pub(super) fn finalize(
         ]),
         true,
     );
-    let diagnostics = diagnostics(warnings, policy, codex, &profile_id);
+    let diagnostics = diagnostics(warnings, policy, &worker, &profile_id);
     let identity = req.get("identity").cloned().unwrap_or(J::Null);
     let generation = identity.get("generation").cloned();
     let mut compile_material = J::Obj(vec![]);
@@ -286,12 +291,7 @@ pub(super) fn finalize(
     let mut response_diagnostics = diagnostics;
     response_diagnostics.extend(plan.metadata_diagnostics.iter().cloned());
     let protocol = "harness-broker/0.2";
-    let worker = if codex {
-        "codex-app-server"
-    } else {
-        claude_driver(plan.selection.hrcpty)
-    };
-    let execution_release = execution_release(release, protocol, worker)?;
+    let execution_release = execution_release(release, protocol, &worker)?;
     Ok(J::obj([
         (
             "schemaVersion",
@@ -372,7 +372,7 @@ fn policy_material(policy: &J) -> J {
 /// The plan's diagnostics: one per prepare warning, and
 /// disallowedToolsUnsupportedDiagnostic where the broker route cannot deny
 /// tools.
-fn diagnostics(warnings: &[String], policy: &J, codex: bool, profile_id: &str) -> Vec<J> {
+fn diagnostics(warnings: &[String], policy: &J, driver: &str, profile_id: &str) -> Vec<J> {
     let mut diagnostics: Vec<J> = warnings
         .iter()
         .map(|w| {
@@ -385,7 +385,7 @@ fn diagnostics(warnings: &[String], policy: &J, codex: bool, profile_id: &str) -
             ])
         })
         .collect();
-    if codex
+    if matches!(driver, "codex-app-server" | "antigravity-cli-hrcpty")
         && let Some(J::Arr(tools)) = policy.get("disallowedTools")
         && !tools.is_empty()
     {
@@ -394,16 +394,16 @@ fn diagnostics(warnings: &[String], policy: &J, codex: bool, profile_id: &str) -
             ("code", J::str("disallowed_tools_unsupported_driver")),
             (
                 "message",
-                J::str(
-                    "hrcPolicy.disallowedTools was not applied for codex-app-server; only claude-code-tmux and claude-code-hrcpty currently support compiler-enforced tool denial.",
-                ),
+                J::str(format!(
+                    "hrcPolicy.disallowedTools was not applied for {driver}; only claude-code-tmux and claude-code-hrcpty currently support compiler-enforced tool denial.",
+                )),
             ),
             ("plane", J::str("asp-compiler")),
             ("profileId", J::str(profile_id)),
             (
                 "details",
                 J::obj([
-                    ("selectedDriver", J::str("codex-app-server")),
+                    ("selectedDriver", J::str(driver)),
                     ("disallowedTools", J::Arr(tools.clone())),
                     ("applied", J::Bool(false)),
                 ]),

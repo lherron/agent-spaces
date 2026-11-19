@@ -35,6 +35,7 @@ export const HARNESS_IDS: readonly HarnessId[] = [
   'claude-hrcpty',
   'codex',
   'codex-hrcpty',
+  'antigravity-hrcpty',
   'muse',
 ] as const
 

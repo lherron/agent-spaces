@@ -17,6 +17,7 @@
 //! `materialize::materialize_and_emit` (the writes, then `emit_claude` or
 //! `emit_codex`, both ending in `finalize`).
 mod agent_tools;
+pub(crate) mod antigravity;
 mod broker_spec;
 mod bundle_audit;
 mod bundle_prune;
@@ -24,6 +25,7 @@ mod bundle_publish;
 mod claude_bundle;
 mod claude_plugin;
 mod codex;
+mod emit_antigravity;
 mod emit_claude;
 mod emit_codex;
 mod finalize;

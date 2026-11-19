@@ -208,7 +208,7 @@ export const validateObserveContinuationArtifactParams: ParamsValidator = (
     requireString(continuation['key'], path(basePath, 'continuation.key'), issues)
     optionalEnum(
       continuation['artifactFormat'],
-      ['claude', 'codex', 'pi'],
+      ['claude', 'codex', 'pi', 'antigravity'],
       path(basePath, 'continuation.artifactFormat'),
       issues
     )
@@ -266,6 +266,7 @@ function validateFrozenStartRequest(
       'codex-app-server',
       'claude-code-tmux',
       'claude-code-hrcpty',
+      'antigravity-cli-hrcpty',
       'codex-cli-tmux',
       'pi-tui-tmux',
       'pi-sdk',

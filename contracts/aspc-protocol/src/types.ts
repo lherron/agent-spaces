@@ -324,6 +324,7 @@ export type AspcHistoricalExecutionEvidence = {
           | 'codex-app-server'
           | 'claude-code-tmux'
           | 'claude-code-hrcpty'
+          | 'antigravity-cli-hrcpty'
           | 'codex-cli-tmux'
           | 'pi-tui-tmux'
           | 'pi-sdk'
@@ -354,7 +355,7 @@ export type AspcObserveContinuationArtifactRequest = {
   continuation: {
     provider: string
     key: string
-    artifactFormat?: 'claude' | 'codex' | 'pi' | undefined
+    artifactFormat?: 'claude' | 'codex' | 'pi' | 'antigravity' | undefined
   }
   historicalExecution?: AspcHistoricalExecutionEvidence | undefined
 }
@@ -609,8 +610,8 @@ export type AspcObserveContinuationArtifactResponse =
       schemaVersion: typeof ASPC_OBSERVE_CONTINUATION_ARTIFACT_RESPONSE_VERSION
       ok: true
       requested: AspcObserveContinuationArtifactRequest['continuation']
-      executionProvider?: 'anthropic' | 'openai' | undefined
-      artifactFormat: 'claude' | 'codex' | 'pi' | 'unknown'
+      executionProvider?: 'anthropic' | 'openai' | 'google' | undefined
+      artifactFormat: 'claude' | 'codex' | 'pi' | 'antigravity' | 'unknown'
       artifact: AspcArtifactObservation
       basis: 'frozen-home' | 'recorded-placement-rule' | 'absolute-key' | 'none'
       diagnostics: Array<{ code: 'historical_evidence_disagrees'; message: string }>

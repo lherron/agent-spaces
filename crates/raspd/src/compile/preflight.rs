@@ -12,7 +12,7 @@ use crate::reads::jspath::join;
 /// permission policy, the config.toml render and the response format.
 pub(super) fn preflight(plan: &Plan) -> Result<(), Fwd> {
     let path_exclude = spaces::path_exclude(&plan.closure);
-    if !path_exclude.is_empty() && !plan.codex_home_read_only {
+    if !path_exclude.is_empty() && !plan.runtime_home_read_only {
         let zdotdir = join(&[&path_filter_scope(plan), "zdotdir"]);
         if !dir_creatable(&zdotdir) {
             return Err(fwd_at(crate::reason!("path_filter_mkdir"), zdotdir));

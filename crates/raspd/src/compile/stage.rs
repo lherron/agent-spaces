@@ -22,15 +22,20 @@ pub struct Artifact {
 }
 
 /// `materializeSpaceEntry` for a mutable space: stage it under tmp/.staging.
-pub fn stage_space(plan: &SpacePlan, asp_home: &str, codex: bool) -> Result<Artifact, Fwd> {
+pub fn stage_space(
+    plan: &SpacePlan,
+    asp_home: &str,
+    harness: super::request::Harness,
+) -> Result<Artifact, Fwd> {
     let dir = unique_staging_dir(
         asp_home,
         &format!("space-{}", sanitize_segment(&plan.input.key)),
     );
-    if codex {
-        super::codex::space::materialize_space(plan, &dir)?;
-    } else {
-        super::claude_plugin::materialize_space(plan, &dir)?;
+    use super::request::Harness;
+    match harness {
+        Harness::Antigravity => super::antigravity::plugins::stage_space(plan, &dir)?,
+        Harness::Codex => super::codex::space::materialize_space(plan, &dir)?,
+        Harness::Claude => super::claude_plugin::materialize_space(plan, &dir)?,
     }
     Ok(Artifact {
         space_key: plan.input.key.clone(),

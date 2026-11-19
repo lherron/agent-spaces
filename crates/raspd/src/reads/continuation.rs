@@ -20,6 +20,7 @@ enum Provider {
     Pi,
     Codex,
     Claude,
+    Antigravity,
     Unknown,
     Unsupported,
 }
@@ -29,6 +30,7 @@ fn normalize_provider(provider: &str) -> Provider {
         "pi" | "pi-sdk" | "openai/pi-sdk" => Provider::Pi,
         "codex" | "codex-cli" | "openai-codex" | "openai/codex-cli" => Provider::Codex,
         "anthropic" | "claude" | "claude-code" | "claude-code-cli" => Provider::Claude,
+        "google" => Provider::Antigravity,
         "openai" => Provider::Unknown,
         _ => Provider::Unsupported,
     }
@@ -69,7 +71,7 @@ fn success(requested: J, format: &str, basis: &str, artifact: J, diagnostics: Ve
         ("requested".into(), requested),
     ];
     if let Some(J::Str(p)) = &provider
-        && (p == "anthropic" || p == "openai")
+        && (matches!(p.as_str(), "anthropic" | "openai" | "google"))
     {
         fields.push(("executionProvider".into(), J::str(p)));
     }
@@ -97,6 +99,7 @@ fn driver_format(driver: Option<&J>) -> Option<&'static str> {
             "pi-sdk" | "pi-tui-tmux" => Some("pi"),
             "codex-app-server" | "codex-cli-tmux" => Some("codex"),
             "claude-code-tmux" | "claude-code-hrcpty" => Some("claude"),
+            "antigravity-cli-hrcpty" => Some("antigravity"),
             _ => None,
         },
         _ => None,
@@ -130,6 +133,7 @@ fn resolve_format(continuation: &J, frozen: Option<&J>) -> String {
         Provider::Pi => "pi",
         Provider::Codex => "codex",
         Provider::Claude => "claude",
+        Provider::Antigravity => "antigravity",
         Provider::Unknown | Provider::Unsupported => "unknown",
     }
     .into()
@@ -308,6 +312,7 @@ pub fn observe(request: &J, env: &Env) -> Answer {
     }
     if (normalized == Provider::Claude && format != "claude")
         || (normalized == Provider::Codex && format != "codex")
+        || (normalized == Provider::Antigravity && format != "antigravity")
     {
         return Answer::Result(failure(
             "incompatible",
@@ -348,6 +353,69 @@ pub fn observe(request: &J, env: &Env) -> Answer {
                 artifact_state(stat_path(key))
             };
             return ok("pi", "absolute-key", artifact, vec![]);
+        }
+        "antigravity" => {
+            if key.is_empty() || key == "." || key == ".." || key.contains('/') {
+                return Answer::Result(failure(
+                    "incompatible",
+                    "evidence_invalid",
+                    "Invalid Antigravity conversation key",
+                ));
+            }
+            let frozen_home = at(frozen, &["startRequest", "spec", "process", "args"])
+                .and_then(J::as_arr)
+                .into_iter()
+                .flatten()
+                .filter_map(J::as_str)
+                .find_map(|arg| {
+                    arg.strip_prefix("--gemini_dir=")
+                        .filter(|path| is_absolute(path))
+                });
+            let artifact = |home: &str| {
+                artifact_state(stat_path(&join(&[
+                    home,
+                    "antigravity-cli",
+                    "brain",
+                    key,
+                    ".system_generated",
+                    "logs",
+                    "transcript_full.jsonl",
+                ])))
+            };
+            if let Some(home) = frozen_home {
+                return ok("antigravity", "frozen-home", artifact(home), vec![]);
+            }
+            let recorded = historical.and_then(|h| h.get("recordedPlacement"));
+            let derived = recorded
+                .and_then(|r| r.get("placement"))
+                .and_then(crate::compile::antigravity::runtime_home::seat_key)
+                .and_then(|seat_key| {
+                    let asp_home = at(recorded, &["aspHome"])
+                        .and_then(J::as_str)
+                        .map(str::to_owned)
+                        .or_else(|| env.get("ASP_HOME").map(str::to_owned))?;
+                    Some(crate::compile::antigravity::runtime_home::home_path(
+                        &asp_home, &seat_key,
+                    ))
+                });
+            match derived {
+                Some(home) => {
+                    return ok(
+                        "antigravity",
+                        "recorded-placement-rule",
+                        artifact(&home),
+                        vec![],
+                    );
+                }
+                None => {
+                    return ok(
+                        "antigravity",
+                        "none",
+                        state("unknown", "home_unresolved"),
+                        vec![],
+                    );
+                }
+            }
         }
         "codex" => {
             let asp_home = env.get("ASP_HOME").filter(|h| !h.is_empty());

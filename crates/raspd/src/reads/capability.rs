@@ -57,7 +57,8 @@ pub fn observe(request: &J) -> Answer {
         Some(J::Str(s)) => s.as_str(),
         _ => "",
     };
-    if !super::profile::HARNESS_IDS.contains(&requested) {
+    let antigravity = matches!(requested, "antigravity" | "antigravity-hrcpty");
+    if !antigravity && !super::profile::HARNESS_IDS.contains(&requested) {
         return Answer::Result(failure(
             "unsupported_harness",
             &format!("Unsupported harness {requested}"),
@@ -74,6 +75,20 @@ pub fn observe(request: &J) -> Answer {
         ));
     }
     let mut diagnostics = vec![];
+    if antigravity {
+        let native = if crate::compile::antigravity::find_binary(env).is_some() {
+            State::Present
+        } else {
+            diagnostics.push(Diagnostic {
+                code: "agy_not_found",
+                probe: "path",
+                message: "agy was not found on PATH".into(),
+                candidate: None,
+            });
+            State::Absent
+        };
+        return Answer::Result(success(requested, native, native, diagnostics, env));
+    }
     if matches!(requested, "codex" | "codex-hrcpty") {
         let (native, preparation) = match observe_codex(&mut diagnostics, env) {
             Ok(states) => states,
@@ -497,6 +512,23 @@ fn credentials(harness: &str, env: &Env) -> J {
     let set = |k: &str| env.get(k).is_some_and(|v| !v.is_empty());
     let home = env.get("HOME").cloned().unwrap_or_else(homedir);
     let path = match harness {
+        "antigravity" | "antigravity-hrcpty" => {
+            return match bounded_probe(
+                "/usr/bin/security",
+                &["find-generic-password", "-s", "gemini", "-a", "antigravity"],
+                PROBE_TIMEOUT_MS,
+                env,
+            ) {
+                Ok(Probe::Ok { .. }) => fact("present", "credentials_present"),
+                Ok(Probe::Failed { message, .. })
+                    if message
+                        .contains("The specified item could not be found in the keychain") =>
+                {
+                    fact("absent", "antigravity_keychain_item_missing")
+                }
+                _ => fact("unknown", "antigravity_keychain_probe_failed"),
+            };
+        }
         "agent-harness" if set("OPENAI_API_KEY") || set("ANTHROPIC_API_KEY") => None,
         "agent-harness" => Some(join(&[&home, ".pi", "agent", "auth.json"])),
         "claude" if set("ANTHROPIC_API_KEY") => None,
@@ -532,6 +564,7 @@ fn success(
     let provider = match requested {
         "claude" | "claude-hrcpty" => "anthropic",
         "muse" => "meta",
+        "antigravity" | "antigravity-hrcpty" => "google",
         _ => "openai-codex",
     };
     let credentials = credentials(requested, env);

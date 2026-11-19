@@ -2,7 +2,7 @@
 //! statusline asset and the selected driver's worker (`executionRelease`).
 use super::{Fwd, claude_bundle, fwd, s};
 use crate::json::J;
-use crate::reads::jspath::{join, resolve};
+use crate::reads::jspath::{dirname, join, resolve};
 use crate::release::Release;
 
 pub(super) fn release_statusline(release: &Release) -> Result<claude_bundle::Statusline, Fwd> {
@@ -25,6 +25,16 @@ pub(super) fn release_statusline(release: &Release) -> Result<claude_bundle::Sta
         path: full,
         sha256: sha.to_owned(),
     })
+}
+
+/// The static hook command resolves to the same packaged broker as the worker.
+pub(super) fn antigravity_hook_bin_dir(release: &Release) -> Result<String, Fwd> {
+    let binding = execution_release(release, "harness-broker/0.2", super::antigravity::DRIVER)?;
+    let executable = s(binding
+        .get("worker")
+        .and_then(|worker| worker.get("executable")))
+    .ok_or_else(|| fwd(crate::reason!("release_workers")))?;
+    Ok(dirname(executable))
 }
 
 fn release_manifest(release: &Release) -> Result<J, Fwd> {

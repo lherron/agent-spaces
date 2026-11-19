@@ -12,7 +12,7 @@ mod agents;
 pub mod bundle;
 pub mod config;
 pub mod discovery;
-mod hooks;
+pub(in crate::compile) mod hooks;
 pub mod runtime_home;
 pub mod space;
 

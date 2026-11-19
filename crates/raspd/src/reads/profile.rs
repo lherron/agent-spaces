@@ -6,12 +6,13 @@ use super::patterns::{is_node_id, is_space_ref, is_token_chars, validate_token};
 use super::toml::{self, TomlError};
 use crate::json::J;
 
-pub const HARNESS_IDS: [&str; 6] = [
+pub const HARNESS_IDS: [&str; 7] = [
     "agent-harness",
     "claude",
     "claude-hrcpty",
     "codex",
     "codex-hrcpty",
+    "antigravity-hrcpty",
     "muse",
 ];
 const RUN_MODES: [&str; 4] = ["query", "heartbeat", "task", "maintenance"];

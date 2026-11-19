@@ -92,6 +92,9 @@ pub(super) fn broker_correlation(req: &J) -> Result<J, Fwd> {
 /// Same stable per-agent home used by Bun's preparePathFilter.
 pub(super) fn path_filter_scope(plan: &Plan) -> String {
     let project_id = match plan.launch {
+        Launch::Antigravity { ref seat_key, .. } => {
+            return super::antigravity::runtime_home::artifact_scope(&plan.asp_home, seat_key);
+        }
         Launch::Codex { .. } => plan.handle.project_id.as_deref().unwrap_or_default(),
         Launch::Claude { .. } => plan
             .identity

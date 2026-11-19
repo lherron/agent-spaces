@@ -1,5 +1,12 @@
 import type { HarnessSdkSpec } from 'spaces-harness-broker-protocol'
 
+export const ANTIGRAVITY_MODEL_IDS = [
+  'gemini-4-neon',
+  'gemini-4-argon',
+  'gemini-4-hydrogen',
+  'gemini-3.8-flash',
+] as const
+
 /**
  * Provider-qualified Pi model metadata shared by Pi materialization paths.
  *

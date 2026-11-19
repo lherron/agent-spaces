@@ -101,6 +101,7 @@ describe('asp harnesses', () => {
       'claude-hrcpty',
       'codex',
       'codex-hrcpty',
+      'antigravity-hrcpty',
       'muse',
     ])
     for (const harness of output.harnesses) {

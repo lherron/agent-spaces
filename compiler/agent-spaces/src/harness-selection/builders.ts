@@ -1,4 +1,5 @@
 import { compileBrokerPlan } from '../compile-broker-plan.js'
+import { compileError } from '../compile-diagnostics.js'
 import { compileClaudeHrcptyPlan } from '../compile-hrcpty-broker-plan.js'
 import { compileNativeAgentHarnessPlan } from '../compile-native-agent-harness-plan.js'
 import type { ResolvedRecipeBuilder } from '../compile-plan-types.js'
@@ -13,6 +14,11 @@ import type { BuilderId, ExecutionRecipe } from './types.js'
 export const BUILDER_REGISTRY: Readonly<Record<BuilderId, ResolvedRecipeBuilder>> = {
   'agent-harness': (...args) => compileNativeAgentHarnessPlan(...args),
   'agent-harness-tmux': (...args) => compileNativeAgentHarnessPlan(...args),
+  'antigravity-cli-hrcpty': async () => ({
+    schemaVersion: 'agent-runtime-compile-response/v2',
+    ok: false,
+    diagnostics: [compileError('unsupported_harness', 'Antigravity compilation requires raspd.')],
+  }),
   'claude-code-hrcpty': (...args) => compileClaudeHrcptyPlan(...args),
   'claude-code-tmux': (...args) => compileClaudeTmuxPlan(...args),
   'codex-app-server': (...args) => compileBrokerPlan(...args),

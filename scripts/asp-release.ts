@@ -85,6 +85,7 @@ const WORKER_BINDINGS = {
   'codex-app-server': 'harness-broker',
   'claude-code-tmux': 'harness-broker',
   'claude-code-hrcpty': 'harness-broker',
+  'antigravity-cli-hrcpty': 'harness-broker',
   'muse-serve': 'harness-broker',
   'muse-cli-tmux': 'harness-broker',
   'agent-harness': 'agent-harness',
