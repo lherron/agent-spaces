@@ -7,7 +7,7 @@ import {
   validateOptionalPositiveInteger,
   validateRequiredPositiveInteger,
 } from './schema-shapes.js'
-import { eventTypes } from './schemas.js'
+import { HRCPTY_PTY_CHILD_DRIVER_KINDS, eventTypes } from './schemas.js'
 import type { SchemaRecord } from './schemas.js'
 import { validateTmuxPaneIds } from './tmux-ids.js'
 import {
@@ -668,12 +668,16 @@ function validateTerminalSurfaceReportedPayload(
     driverKind === 'pi-tui-tmux' ||
     driverKind === 'muse-cli-tmux'
 
-  if (driverKind === 'claude-code-hrcpty' && payload['kind'] !== 'hrcpty-socket') {
+  if (
+    driverKind !== undefined &&
+    HRCPTY_PTY_CHILD_DRIVER_KINDS.has(driverKind) &&
+    payload['kind'] !== 'hrcpty-socket'
+  ) {
     issues.push(
       makeIssue(
         'payload.kind',
         'invalid_literal',
-        'claude-code-hrcpty requires terminal.surface.reported payload kind hrcpty-socket'
+        `${driverKind} requires terminal.surface.reported payload kind hrcpty-socket`
       )
     )
   }

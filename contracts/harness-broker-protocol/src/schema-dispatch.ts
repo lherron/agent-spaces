@@ -1,6 +1,11 @@
 import type { ValidationIssue } from './errors.js'
 import { validateInvocationInputShape } from './schema-shapes.js'
-import { TMUX_SURFACE_DRIVER_KINDS, isDriverKindIn, validateSpec } from './schemas.js'
+import {
+  HRCPTY_PTY_CHILD_DRIVER_KINDS,
+  TMUX_SURFACE_DRIVER_KINDS,
+  isDriverKindIn,
+  validateSpec,
+} from './schemas.js'
 import type { SchemaRecord } from './schemas.js'
 import { validateTmuxPaneIds } from './tmux-ids.js'
 import {
@@ -92,13 +97,13 @@ export function validateDispatchRuntime(
     issues
   )
 
-  if (driverKind === 'claude-code-hrcpty') {
+  if (typeof driverKind === 'string' && HRCPTY_PTY_CHILD_DRIVER_KINDS.has(driverKind)) {
     if (terminalSurfaceRaw === undefined) {
       issues.push(
         makeIssue(
           joinPath(runtimePath, 'terminalSurface'),
           'required',
-          'claude-code-hrcpty dispatch requires an hrcpty terminal lease'
+          `${driverKind} dispatch requires an hrcpty terminal lease`
         )
       )
     } else if (asRecord(terminalSurfaceRaw)?.['kind'] !== 'hrcpty') {
@@ -106,7 +111,7 @@ export function validateDispatchRuntime(
         makeIssue(
           joinPath(runtimePath, 'terminalSurface.kind'),
           'invalid_literal',
-          'claude-code-hrcpty requires terminalSurface.kind hrcpty'
+          `${driverKind} requires terminalSurface.kind hrcpty`
         )
       )
     }

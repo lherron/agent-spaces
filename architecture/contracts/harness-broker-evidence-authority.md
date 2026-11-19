@@ -100,22 +100,22 @@ records the same mistake once, under "Unknown HOOK names" below.
 
 ## The matrix
 
-| Family | claude-code-tmux | claude-code-hrcpty | codex-cli-tmux | codex-app-server | muse-serve | muse-cli-tmux | codex-desktop | arris-resident | pi-tui-tmux | pi-sdk |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `invocation-lifecycle` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
-| `harness-lifecycle` | hook | hook | hook | broker | broker | broker | broker | broker | hook | broker |
-| `continuation` | hook | hook | hook | native | native | native | broker | native | hook | native |
-| `input-admission` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
-| `submission-disposition` | **native** | **native** | broker † | broker † | broker † | broker † | broker † | native | broker † | broker † |
-| `turn-bracket` | hook | hook | hook | native | native | native | native | native | hook ‡ | **broker** ‡ |
-| `turn-supervision` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
-| `conversation` | **native** | **native** | **native** | native | native | native | native | native | hook | native |
-| `tool` | **native** | **native** | hook | native | native | native | native | native | hook | native |
-| `usage` | native | native | native † | native | native | native | native | native | hook † | native |
-| `permission` | hook | hook | hook | native | native | broker | broker | native | hook | native | native |
-| `diagnostic` | hook | hook | broker | native | native | native | broker | native | broker | broker | broker |
-| `terminal-surface` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
-| `provider-artifact` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| Family | claude-code-tmux | claude-code-hrcpty | antigravity-cli-hrcpty | codex-cli-tmux | codex-app-server | muse-serve | muse-cli-tmux | codex-desktop | arris-resident | pi-tui-tmux | pi-sdk |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `invocation-lifecycle` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `harness-lifecycle` | hook | hook | hook | hook | broker | broker | broker | broker | broker | hook | broker |
+| `continuation` | hook | hook | hook | hook | native | native | native | broker | native | hook | native |
+| `input-admission` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `submission-disposition` | **native** | **native** | broker | broker † | broker † | broker † | broker † | broker † | native | broker † | broker † |
+| `turn-bracket` | hook | hook | hook | hook | native | native | native | native | native | hook ‡ | **broker** ‡ |
+| `turn-supervision` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `conversation` | **native** | **native** | native | **native** | native | native | native | native | native | hook | native |
+| `tool` | **native** | **native** | hook | hook | native | native | native | native | native | hook | native |
+| `usage` | native | native | native | native † | native | native | native | native | native | hook † | native |
+| `permission` | hook | hook | hook | hook | native | native | broker | broker | native | hook | native | native |
+| `diagnostic` | hook | hook | broker | broker | native | native | native | broker | native | broker | broker | broker |
+| `terminal-surface` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
+| `provider-artifact` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
 
 † **Declared but not emitted today.** The value names the source that *would*
 own the family, so a later cutover has a stated starting point. The parity

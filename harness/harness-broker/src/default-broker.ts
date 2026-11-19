@@ -6,6 +6,7 @@ import type {
   PermissionRequestParams,
 } from 'spaces-harness-broker-protocol'
 import { type BrokerAttachIdentity, createBroker } from './broker'
+import { createAntigravityHrcptyDriver } from './drivers/antigravity-cli-hrcpty/driver'
 import { createArrisResidentDriver } from './drivers/arris-resident/driver'
 import { createDefaultClaudeCodeHrcptyDriver } from './drivers/claude-code-hrcpty/driver'
 import { createDefaultClaudeCodeTmuxDriver } from './drivers/claude-code-tmux/driver'
@@ -101,6 +102,7 @@ export function createDefaultBroker(
         options.tmuxHelperLauncher,
         options.attachIdentity?.attachToken
       ),
+      createAntigravityHrcptyDriver(options.hookIpcDir, options.attachIdentity?.attachToken),
       ...(options.additionalDrivers?.map((createDriver) => createDriver()) ?? []),
     ],
     ...(onEvent !== undefined ? { onEvent } : {}),

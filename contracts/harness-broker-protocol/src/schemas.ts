@@ -291,6 +291,11 @@ export const TMUX_SURFACE_DRIVER_KINDS: ReadonlySet<string> = new Set([
   'agent-harness-tmux',
 ])
 
+export const HRCPTY_PTY_CHILD_DRIVER_KINDS: ReadonlySet<string> = new Set([
+  'claude-code-hrcpty',
+  'antigravity-cli-hrcpty',
+])
+
 export function isDriverKindIn(kinds: ReadonlySet<string>, driverKind: unknown): boolean {
   return typeof driverKind === 'string' && kinds.has(driverKind)
 }

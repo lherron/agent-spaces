@@ -34,7 +34,8 @@ export type MailHintDecision = {
  */
 export async function queryMailStopDecision(
   hookData: unknown,
-  env: Record<string, string | undefined>
+  env: Record<string, string | undefined>,
+  timeoutMs = MAIL_STOP_QUERY_TIMEOUT_MS
 ): Promise<MailStopDecision | undefined> {
   if (getHookEventName(hookData) !== 'Stop') {
     return undefined
@@ -50,7 +51,7 @@ export async function queryMailStopDecision(
       socketPath,
       MAIL_STOP_DECISION_PATH,
       { runtimeId },
-      MAIL_STOP_QUERY_TIMEOUT_MS,
+      timeoutMs,
       resolveCaller(env)
     )
     if (response.status !== 200) {
@@ -76,9 +77,10 @@ export async function queryMailStopDecision(
  */
 export async function queryMailHintDecision(
   hookData: unknown,
-  env: Record<string, string | undefined>
+  env: Record<string, string | undefined>,
+  event: 'PostToolUse' | 'PreInvocation' = 'PostToolUse'
 ): Promise<MailHintDecision | undefined> {
-  if (getHookEventName(hookData) !== 'PostToolUse') {
+  if (getHookEventName(hookData) !== event) {
     return undefined
   }
   const socketPath = env[HRC_MAIL_STOP_SOCKET_ENV]
@@ -179,7 +181,21 @@ async function postUnixHttpJson(
       clearTimeout(timeout)
       reject(error)
     })
-    conn.on('data', (chunk: Buffer) => chunks.push(chunk))
+    conn.on('data', (chunk: Buffer) => {
+      chunks.push(chunk)
+      // A complete length-framed response is available even while the peer's
+      // Unix socket is still open after an asynchronous decision.
+      const bytes = Buffer.concat(chunks)
+      const separator = bytes.indexOf('\r\n\r\n')
+      if (separator === -1) return
+      const length = /^content-length:[ \t]*(\d+)\r?$/im.exec(
+        bytes.subarray(0, separator).toString('ascii')
+      )?.[1]
+      if (length !== undefined && bytes.length >= separator + 4 + Number(length)) {
+        finish()
+        conn.destroy()
+      }
+    })
     conn.on('end', finish)
     conn.on('close', finish)
     conn.on('connect', () => {

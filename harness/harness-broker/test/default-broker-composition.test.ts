@@ -28,6 +28,7 @@ describe('composable broker CLI', () => {
       'arris-resident',
       'claude-code-tmux',
       'claude-code-hrcpty',
+      'antigravity-cli-hrcpty',
       'noop-driver',
     ])
     for (const retiredDriver of ['codex-cli-tmux', 'pi-tui-tmux', 'pi-sdk']) {

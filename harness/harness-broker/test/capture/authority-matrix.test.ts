@@ -9,6 +9,7 @@ import { createDefaultBroker } from '../../src/default-broker'
 import { createDefaultCodexCliTmuxDriver } from '../../src/drivers/codex-cli-tmux/driver'
 import type { Driver } from '../../src/drivers/driver'
 import {
+  ANTIGRAVITY_CLI_HRCPTY_AUTHORITY,
   ARRIS_RESIDENT_AUTHORITY,
   CLAUDE_CODE_HRCPTY_AUTHORITY,
   CLAUDE_CODE_TMUX_AUTHORITY,
@@ -35,6 +36,7 @@ const AUTHORITY_MD = readFileSync(
 const DECLARED: Record<string, Record<EventFamily, EvidenceAuthority>> = {
   'claude-code-tmux': CLAUDE_CODE_TMUX_AUTHORITY,
   'claude-code-hrcpty': CLAUDE_CODE_HRCPTY_AUTHORITY,
+  'antigravity-cli-hrcpty': ANTIGRAVITY_CLI_HRCPTY_AUTHORITY,
   'codex-cli-tmux': CODEX_CLI_TMUX_AUTHORITY,
   'codex-app-server': CODEX_APP_SERVER_AUTHORITY,
   'muse-serve': MUSE_SERVE_AUTHORITY,

@@ -94,6 +94,11 @@ export async function runBrokerCli(options: RunBrokerCliOptions): Promise<void> 
         process.stdout.write(`${driver.kind}\t${driver.available ? 'available' : 'unavailable'}\n`)
       }
     }
+  } else if (command === 'antigravity-hook') {
+    const { runAntigravityHookBridgeCli } = await import(
+      './drivers/antigravity-cli-hrcpty/hook-bridge'
+    )
+    await runAntigravityHookBridgeCli(args.slice(1))
   } else if (command === 'claude-hook') {
     await runClaudeHookBridgeCli(args.slice(1))
   } else if (command === 'claude-hook-decision') {

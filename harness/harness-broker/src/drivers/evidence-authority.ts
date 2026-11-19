@@ -108,6 +108,9 @@ export const CODEX_CLI_TMUX_AUTHORITY: EvidenceAuthorityMatrix = {
   permission: 'hook',
 }
 
+/** Antigravity tool correlation and turn brackets use hooks. Content and usage use JSONL. */
+export const ANTIGRAVITY_CLI_HRCPTY_AUTHORITY: EvidenceAuthorityMatrix = CODEX_CLI_TMUX_AUTHORITY
+
 /**
  * Codex app-server. The native JSON-RPC notification stream is the primary
  * evidence for everything the model does; the broker owns only its own
