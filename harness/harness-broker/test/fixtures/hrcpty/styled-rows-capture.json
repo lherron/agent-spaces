@@ -1,0 +1,28 @@
+{
+  "plain": {
+    "text": "banner 10\nbanner 11\nbanner 12\nbanner 13\nbanner 14\nbanner 15\nbanner 16\nbanner 17\nbanner 18\nbanner 19\nbanner 20\nbanner 21\nbanner 22\nbanner 23\nbanner 24\nbanner 25\nbanner 26\nbanner 27\nbanner 28\nbanner 29\nWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW\nWWWWWWWWWWWWWWWWWWWW\nreply line\n> Type a message",
+    "layout": "plain-rows",
+    "cursor": {
+      "x": 2,
+      "y": 23,
+      "visible": true
+    },
+    "cols": 80,
+    "rows": 24,
+    "screen": "primary",
+    "kittyPlacements": 0
+  },
+  "styled": {
+    "text": "banner 10\nbanner 11\nbanner 12\nbanner 13\nbanner 14\nbanner 15\nbanner 16\nbanner 17\nbanner 18\nbanner 19\nbanner 20\nbanner 21\nbanner 22\nbanner 23\nbanner 24\nbanner 25\nbanner 26\nbanner 27\nbanner 28\nbanner 29\n\u001b[0m\u001b[1mWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW\u001b[0m\n\u001b[0m\u001b[1mWWWWWWWWWWWWWWWWWWWW\u001b[0m\nreply line\n> \u001b[0m\u001b[2mType a message\u001b[0m",
+    "layout": "styled-rows",
+    "cursor": {
+      "x": 2,
+      "y": 23,
+      "visible": true
+    },
+    "cols": 80,
+    "rows": 24,
+    "screen": "primary",
+    "kittyPlacements": 0
+  }
+}

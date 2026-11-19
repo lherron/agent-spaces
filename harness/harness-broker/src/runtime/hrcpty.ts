@@ -48,6 +48,12 @@ export type HrcptyCapture = {
   cols: number
   rows: number
   screen: 'primary' | 'alternate'
+  /**
+   * How `text` is laid out: 'plain-rows', 'styled-rows' (one styled line per
+   * viewport row, opted into with `rows: true`) or 'styled-replay' (the VT
+   * repaint stream). Absent from an hrc-pty older than the row-aligned mode.
+   */
+  layout?: 'plain-rows' | 'styled-rows' | 'styled-replay' | undefined
 }
 
 export type HrcptySpawnRequest = {
@@ -577,7 +583,9 @@ export class HrcptyPtyController {
 
   async captureRaw(styled = false): Promise<HrcptyCapture> {
     this.requireCapture()
-    return (await this.call('capture', styled ? { styled: true } : {})) as HrcptyCapture
+    // `rows` asks for the row-aligned styled capture; an older hrc-pty ignores
+    // it and answers with the replay stream and no `layout`.
+    return (await this.call('capture', styled ? { styled: true, rows: true } : {})) as HrcptyCapture
   }
 
   /**
@@ -726,14 +734,15 @@ export function bracketedPaste(text: string): string {
 }
 
 /**
- * Pair the plain cursor row with its styled twin. A styled `capture` is a VT
- * replay stream, not a row grid (by design in hrc-pty): it carries the whole
+ * Pair the plain cursor row with its styled twin. A row-aligned styled capture
+ * (`layout: 'styled-rows'`) is read by index: styled row N is plain row N.
+ * The default styled `capture` is a VT replay stream, not a row grid: it carries the whole
  * active screen including rows above the viewport, and a soft-wrapped row ends
  * in a bare `\n`. So the styled row at the cursor index may be another line
  * entirely. Take the styled row whose visible text is the cursor row,
  * searching from the bottom, where the input box is; fall back to the index
- * when no row matches. hrc-runtime is adding an opt-in viewport-aligned styled
- * capture; when it ships, this becomes an index read.
+ * when no row matches. That fallback serves seats whose hrc-pty predates the
+ * row-aligned mode; each seat runs the hrc-pty it was born with.
  */
 export function inputSnapshotFrom(
   plain: HrcptyCapture,
@@ -741,6 +750,10 @@ export function inputSnapshotFrom(
 ): TmuxPaneInputSnapshot {
   const { x: cursorX, y: cursorY } = plain.cursor
   const line = plain.text.split('\n')[cursorY] ?? ''
+  if (styled.layout === 'styled-rows') {
+    const styledLine = styled.text.split('\n')[cursorY] ?? ''
+    return { line, styledLine, cursorX, cursorY, paneWidth: plain.cols, paneHeight: plain.rows }
+  }
   const rows = styledRows(styled.text)
   const wanted = line.trimEnd()
   let styledLine = rows[cursorY] ?? ''
