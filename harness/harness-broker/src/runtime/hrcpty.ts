@@ -589,17 +589,7 @@ export class HrcptyPtyController {
   async captureInputSnapshot(): Promise<TmuxPaneInputSnapshot | undefined> {
     if (this.allowedOps.capture !== true) return undefined
     try {
-      const plain = await this.captureRaw()
-      const styled = await this.captureRaw(true)
-      const { x: cursorX, y: cursorY } = plain.cursor
-      return {
-        line: plain.text.split('\n')[cursorY] ?? '',
-        styledLine: styledRows(styled.text)[cursorY] ?? '',
-        cursorX,
-        cursorY,
-        paneWidth: plain.cols,
-        paneHeight: plain.rows,
-      }
+      return inputSnapshotFrom(await this.captureRaw(), await this.captureRaw(true))
     } catch {
       return undefined
     }
@@ -739,6 +729,43 @@ export function bracketedPaste(text: string): string {
  * Split a styled `capture` into its viewport rows. The formatter writes its
  * mode and tabstop preamble, homes the cursor, then one `\r\n` per row.
  */
+/**
+ * Pair the plain cursor row with its styled twin. The styled capture's rows
+ * do not always line up with the viewport: after output scrolls and wraps it
+ * can carry rows above the viewport and break rows differently, so the styled
+ * row at the cursor index may be another line entirely. Take the styled row
+ * whose visible text is the cursor row, searching from the bottom, where the
+ * input box is; fall back to the index when no row matches.
+ */
+export function inputSnapshotFrom(
+  plain: HrcptyCapture,
+  styled: HrcptyCapture
+): TmuxPaneInputSnapshot {
+  const { x: cursorX, y: cursorY } = plain.cursor
+  const line = plain.text.split('\n')[cursorY] ?? ''
+  const rows = styledRows(styled.text)
+  const wanted = line.trimEnd()
+  let styledLine = rows[cursorY] ?? ''
+  if (wanted !== '' && visibleText(styledLine) !== wanted) {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (visibleText(rows[i] ?? '') === wanted) {
+        styledLine = rows[i] ?? ''
+        break
+      }
+    }
+  }
+  return { line, styledLine, cursorX, cursorY, paneWidth: plain.cols, paneHeight: plain.rows }
+}
+
+const CSI_SEQUENCE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[A-Za-z]`, 'g')
+
+function visibleText(row: string): string {
+  return row
+    .replace(CSI_SEQUENCE, '')
+    .replace(/[\r\n]/g, '')
+    .trimEnd()
+}
+
 export function styledRows(text: string): string[] {
   const rows = text.split('\r\n')
   const first = rows[0] ?? ''
