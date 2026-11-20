@@ -70,6 +70,13 @@ pub(super) enum Launch {
     },
 }
 
+/// Harness defaults resolved before bundle reads and binary detection.
+enum LaunchDefaults {
+    Antigravity,
+    Claude(ClaudeDefaults),
+    Codex(CodexDefaults),
+}
+
 /// The placement facts every stage reads.
 struct Sources {
     req: J,
@@ -179,16 +186,26 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
     let effective_priming = provisioning::effective_priming(&profile, &agent_root, project_target)?;
     let compose = provisioning::compose(&profile.raw, src.run_mode.as_deref(), project_target);
     let claude = provisioning::claude_defaults(&profile, project_target);
-    if selection.harness == request::Harness::Antigravity
-        && !super::antigravity::bypass_enabled(&src.req, claude.yolo)
-    {
-        return Err(fwd(crate::reason!(
-            "antigravity_permission_mode_unsupported"
-        )));
-    }
-    let codex_defaults = (selection.harness != request::Harness::Antigravity)
-        .then(|| provisioning::codex_defaults(&profile, project_target, claude.yolo))
-        .transpose()?;
+    let defaults = match selection.harness {
+        request::Harness::Antigravity => {
+            if !super::antigravity::bypass_enabled(&src.req, claude.yolo) {
+                return Err(fwd(crate::reason!(
+                    "antigravity_permission_mode_unsupported"
+                )));
+            }
+            LaunchDefaults::Antigravity
+        }
+        request::Harness::Claude => {
+            // Placement validates Codex options for Claude compiles too.
+            provisioning::codex_defaults(&profile, project_target, claude.yolo)?;
+            LaunchDefaults::Claude(claude)
+        }
+        request::Harness::Codex => LaunchDefaults::Codex(provisioning::codex_defaults(
+            &profile,
+            project_target,
+            claude.yolo,
+        )?),
+    };
     let resolved_bundle = bundle_audit::resolved_bundle(&BundleInput {
         placement: &src.placement,
         raw_profile: &profile.raw,
@@ -298,21 +315,21 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
         system_prompt(&src, &scoped, &prep, &asp_home, explicit_asp_home.is_some())?;
     phases.lap("system-prompt");
 
-    let launch = match harness {
-        request::Harness::Antigravity => Launch::Antigravity {
+    let launch = match defaults {
+        LaunchDefaults::Antigravity => Launch::Antigravity {
             path: launch_path,
             seat_key: super::antigravity::runtime_home::seat_key(&src.placement)
                 .unwrap_or_else(|| bundle_identity.clone()),
             hooks: super::antigravity::hooks::bridge(),
             hook_bin_dir: release_binding::antigravity_hook_bin_dir(release)?,
         },
-        request::Harness::Claude => Launch::Claude {
-            defaults: claude,
+        LaunchDefaults::Claude(defaults) => Launch::Claude {
+            defaults,
             path: launch_path,
             statusline: release_binding::release_statusline(release)?,
         },
-        request::Harness::Codex => Launch::Codex {
-            defaults: codex_defaults.expect("Codex compile prepared its defaults"),
+        LaunchDefaults::Codex(defaults) => Launch::Codex {
+            defaults,
             path: launch_path,
         },
     };
