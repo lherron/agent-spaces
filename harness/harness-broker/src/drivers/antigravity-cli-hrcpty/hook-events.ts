@@ -6,6 +6,7 @@ import type {
   TurnId,
 } from 'spaces-harness-broker-protocol'
 import type { CapturedRecord } from '../../capture/capture-gate'
+import { createClaudeTranscriptWakeup } from '../claude-code-tmux/transcript-wakeup'
 import type { DriverContext } from '../driver'
 import { withDeliveryEvidence, withSteerRequiresOwnTurn } from '../driver'
 import { asRecord, getNumber, getString } from '../hook-json'
@@ -70,6 +71,21 @@ export function createAntigravityHookEvents(options: {
 }) {
   const { ctx, env } = options
   const transcript = createAntigravityTranscript(ctx)
+  // No hook fires between agy's final answer and its Stop hook, which can come
+  // seconds later. Watching the transcript emits rows as agy writes them, so a
+  // prompt queued in that gap cannot overtake the answer. Hooks still drain.
+  let watchedPath: string | undefined
+  const wakeup = createClaudeTranscriptWakeup({
+    onChange: () => {
+      if (!closed && active !== undefined) drainTranscript(active)
+    },
+    onLost: (path, detail) =>
+      ctx.emit('diagnostic', {
+        level: 'warn',
+        source: 'driver',
+        message: `Antigravity transcript watch lost (${path}): ${detail}; rows now arrive with hooks only`,
+      }),
+  })
   const tools = new Map<number, Tool>()
   let turnNumber = 0
   let humanSubmissions = 0
@@ -322,6 +338,14 @@ export function createAntigravityHookEvents(options: {
     }
 
     transcriptPath = getString(payload, 'transcriptPath') ?? transcriptPath
+    if (transcriptPath !== undefined && transcriptPath !== watchedPath) {
+      // select tolerates a transcript agy has named but not yet created;
+      // available arms it on a later hook once the file exists.
+      watchedPath = transcriptPath
+      wakeup.select(transcriptPath)
+    } else if (transcriptPath !== undefined) {
+      wakeup.available(transcriptPath)
+    }
     if (active === undefined && event === 'PreInvocation' && payload['invocationNum'] === 0) {
       const prompt = getString(payload, 'lastUserInput')
       const delivery = pendingDelivery?.text === prompt ? pendingDelivery : undefined
@@ -508,6 +532,7 @@ export function createAntigravityHookEvents(options: {
     },
     close(): void {
       closed = true
+      wakeup.close()
       missedMail.length = 0
       steer?.reject(
         withDeliveryEvidence(
