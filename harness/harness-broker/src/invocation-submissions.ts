@@ -36,6 +36,8 @@ import {
   requestsJsonSchemaResponse,
   supportsJsonSchemaResponse,
 } from './invocation-constants'
+import type { InvocationDelivery } from './invocation-delivery'
+import { type HeldQueue, hasDriverOwnedAdmissionFence, queueEntry } from './invocation-held-queue'
 import type {
   EmitFn,
   Invocation,
@@ -43,9 +45,15 @@ import type {
   InvocationManager,
   InvocationManagerOptions,
 } from './invocation-model'
+import { type SteerDelivery, steerRoutesThroughQueue } from './invocation-steer-delivery'
+import type { SubmissionTerminals } from './invocation-submission-terminals'
 
 export interface InvocationSubmissionsDeps {
   admission: InvocationAdmission
+  terminals: SubmissionTerminals
+  delivery: InvocationDelivery
+  heldQueue: HeldQueue
+  steer: SteerDelivery
   emit: EmitFn
   requireInvocation(invocationId: InvocationId): Invocation
   maxQueueDepth: number
@@ -76,26 +84,22 @@ export function createInvocationSubmissions(
   const {
     admitOnce,
     registerLegacySubmission,
-    rejectSubmission,
     checkAdmission,
     admitSubmission,
-    rejectAdmittedExecution,
-    queueEntry,
-    withdrawHeldSubmission,
-    holdSubmission,
-    hasDriverOwnedAdmissionFence,
-    scheduleAdmissionDrain,
-    requestPreemptInterrupt,
-    maybeRequestPreemptInterrupt,
-    applyAndEmit,
-    attemptSteerAndEmit,
-    deliverSteer,
-    steerRoutesThroughQueue,
-    rejectQueueInput,
     resolveInputId,
     fingerprintInput,
     recordDisposition,
   } = deps.admission
+  const { rejectSubmission, rejectAdmittedExecution, rejectQueueInput } = deps.terminals
+  const { applyAndEmit } = deps.delivery
+  const {
+    withdrawHeldSubmission,
+    holdSubmission,
+    scheduleAdmissionDrain,
+    requestPreemptInterrupt,
+    maybeRequestPreemptInterrupt,
+  } = deps.heldQueue
+  const { attemptSteerAndEmit, deliverSteer } = deps.steer
 
   return {
     async steer(req: SubmissionSteerRequest): Promise<SubmissionResponse> {

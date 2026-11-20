@@ -48,7 +48,9 @@ import {
   requestsJsonSchemaResponse,
   supportsJsonSchemaResponse,
 } from './invocation-constants'
+import { createInvocationDelivery } from './invocation-delivery'
 import { createInvocationEvents } from './invocation-events'
+import { createHeldQueue } from './invocation-held-queue'
 import { buildInspectionSummary } from './invocation-inspection'
 import type {
   EmitFn,
@@ -59,6 +61,8 @@ import type {
   InvocationManagerOptions,
 } from './invocation-model'
 import { createInvocationPermissions } from './invocation-permissions'
+import { createSteerDelivery } from './invocation-steer-delivery'
+import { createSubmissionTerminals } from './invocation-submission-terminals'
 import { createInvocationSubmissions } from './invocation-submissions'
 import { LEDGER_APPEND_FAILED } from './ledger-commit'
 import type { DispatchEnv } from './runtime/env'
@@ -110,27 +114,25 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   }
 
   // Admission and emission are mutually recursive (a drain emits; a turn
-  // terminal drains), so admission binds emit late through this forwarder.
+  // terminal drains), so the submission modules bind emit late through this forwarder.
   const emit: EmitFn = (inv, type, payload, extra) => events.emit(inv, type, payload, extra)
-  const admission = createInvocationAdmission({
+  const terminals = createSubmissionTerminals({ emit })
+  const delivery = createInvocationDelivery({ emit })
+  const admission = createInvocationAdmission({ emit, authorizeSubmission, terminals })
+  const heldQueue = createHeldQueue({ emit, now, invocations, delivery, terminals })
+  const steer = createSteerDelivery({
     emit,
-    now,
-    invocations,
-    authorizeSubmission,
+    delivery,
+    terminals,
     steerRetryIntervalMs: options.steerRetryIntervalMs ?? DEFAULT_STEER_RETRY_INTERVAL_MS,
   })
-  const events = createInvocationEvents({ sequencer, onEvent, admission })
+  const events = createInvocationEvents({ sequencer, onEvent, delivery, heldQueue, terminals })
   const { brokerProvenance, emitEvent, emitTerminal } = events
-  const {
-    registerLegacySubmission,
-    admitSubmission,
-    holdSubmission,
-    scheduleAdmissionDrain,
-    applyAndEmit,
-    rejectAdmittedExecution,
-    resolveInputId,
-    releaseStartHeldSteers,
-  } = admission
+  const { registerLegacySubmission, admitSubmission, resolveInputId } = admission
+  const { holdSubmission, scheduleAdmissionDrain } = heldQueue
+  const { applyAndEmit } = delivery
+  const { rejectAdmittedExecution } = terminals
+  const { releaseStartHeldSteers } = steer
   const { brokerRequestPermission, permissionRespond } = createInvocationPermissions({
     emit,
     now,
@@ -138,6 +140,10 @@ export function createInvocationManager(options: InvocationManagerOptions): Invo
   })
   const submissions = createInvocationSubmissions({
     admission,
+    terminals,
+    delivery,
+    heldQueue,
+    steer,
     emit,
     requireInvocation,
     maxQueueDepth,

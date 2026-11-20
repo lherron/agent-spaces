@@ -6,14 +6,18 @@ import type {
   TurnId,
   UsageUpdatedPayload,
 } from 'spaces-harness-broker-protocol'
-import type { InvocationAdmission } from './invocation-admission'
 import { REASON_INVOCATION_STOPPING } from './invocation-constants'
+import type { InvocationDelivery } from './invocation-delivery'
+import type { HeldQueue } from './invocation-held-queue'
 import type { EmitFn, Invocation } from './invocation-model'
+import type { SubmissionTerminals } from './invocation-submission-terminals'
 
 export interface InvocationStateProjectionDeps {
   emit: EmitFn
   observePendingOwnTurnStart(inv: Invocation, turnId: TurnId, inputId?: InputId): void
-  admission: InvocationAdmission
+  delivery: InvocationDelivery
+  heldQueue: HeldQueue
+  terminals: SubmissionTerminals
 }
 
 /**
@@ -38,8 +42,9 @@ function projectContextUsage(inv: Invocation, event: InvocationEventEnvelope): v
 /** Project each sequenced event onto the manager-owned invocation record. */
 export function createStateProjection(deps: InvocationStateProjectionDeps) {
   const { emit, observePendingOwnTurnStart } = deps
-  const { maybeRequestPreemptInterrupt, scheduleDrain, scheduleAdmissionDrain, evictQueue } =
-    deps.admission
+  const { scheduleDrain } = deps.delivery
+  const { maybeRequestPreemptInterrupt, scheduleAdmissionDrain } = deps.heldQueue
+  const { evictQueue } = deps.terminals
 
   // ---------------------------------------------------------------------------
   // Event state machine

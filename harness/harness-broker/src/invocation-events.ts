@@ -11,7 +11,6 @@ import type {
 } from 'spaces-harness-broker-protocol'
 import { EVENT_FAMILY_BY_TYPE, validateEventEnvelope } from 'spaces-harness-broker-protocol'
 import type { InvocationEventExtra } from './events'
-import type { InvocationAdmission } from './invocation-admission'
 import {
   BROKER_DECISION_TYPES,
   BROKER_PROVENANCE,
@@ -24,16 +23,21 @@ import {
   TURN_TERMINAL_TYPES,
   asStartedToolCall,
 } from './invocation-constants'
+import type { InvocationDelivery } from './invocation-delivery'
+import type { HeldQueue } from './invocation-held-queue'
 import { buildInspectionSummary } from './invocation-inspection'
 import type { Invocation, InvocationManagerOptions, StartedToolCall } from './invocation-model'
 import { createStateProjection } from './invocation-state'
+import type { SubmissionTerminals } from './invocation-submission-terminals'
 import { normalizeEventPayload } from './runtime/event-normalize'
 import { HARNESS_BROKER_VERSION } from './version'
 
 export interface InvocationEventsDeps {
   sequencer: InvocationManagerOptions['sequencer']
   onEvent: InvocationManagerOptions['onEvent']
-  admission: InvocationAdmission
+  delivery: InvocationDelivery
+  heldQueue: HeldQueue
+  terminals: SubmissionTerminals
 }
 
 export type InvocationEvents = ReturnType<typeof createInvocationEvents>
@@ -43,13 +47,16 @@ export type InvocationEvents = ReturnType<typeof createInvocationEvents>
  * invariants, sequencing, validation, delivery, then state projection.
  */
 export function createInvocationEvents(deps: InvocationEventsDeps) {
-  const { sequencer, onEvent } = deps
-  const { scheduleDrain, scheduleAdmissionDrain, evictQueue, settleUndisposedSubmissions } =
-    deps.admission
+  const { sequencer, onEvent, delivery, heldQueue, terminals } = deps
+  const { scheduleDrain } = delivery
+  const { scheduleAdmissionDrain } = heldQueue
+  const { evictQueue, settleUndisposedSubmissions } = terminals
   const applyEventState = createStateProjection({
     emit,
     observePendingOwnTurnStart,
-    admission: deps.admission,
+    delivery,
+    heldQueue,
+    terminals,
   })
 
   /**
