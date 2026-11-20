@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import type {
   EventProvenance,
   InputId,
@@ -339,11 +340,13 @@ export function createAntigravityHookEvents(options: {
 
     transcriptPath = getString(payload, 'transcriptPath') ?? transcriptPath
     if (transcriptPath !== undefined && transcriptPath !== watchedPath) {
-      // select tolerates a transcript agy has named but not yet created;
-      // available arms it on a later hook once the file exists.
+      // select tolerates a transcript agy has named but not yet created.
       watchedPath = transcriptPath
       wakeup.select(transcriptPath)
-    } else if (transcriptPath !== undefined) {
+    } else if (transcriptPath !== undefined && existsSync(transcriptPath)) {
+      // agy fires SessionStart and the first PreInvocation before it creates
+      // the file, and available() takes a missing file as a lost watch. Arm
+      // only once the file exists.
       wakeup.available(transcriptPath)
     }
     if (active === undefined && event === 'PreInvocation' && payload['invocationNum'] === 0) {

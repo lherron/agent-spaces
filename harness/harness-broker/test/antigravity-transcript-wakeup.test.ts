@@ -76,4 +76,58 @@ describe('antigravity transcript wakeup', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  test('arms once agy creates the transcript after the first hooks named it', async () => {
+    // agy names the transcript at SessionStart and PreInvocation before it
+    // creates the file; the watch must survive that and arm on a later hook.
+    const dir = mkdtempSync(join(tmpdir(), 'agy-wakeup-'))
+    const transcriptPath = join(dir, 'transcript_full.jsonl')
+    const emitted: string[] = []
+    const ctx = {
+      invocationId: 'inv-lazy',
+      emit: (type: string) => {
+        emitted.push(type)
+      },
+    } as unknown as DriverContext
+    const callbackSocket = join(dir, 'hook.sock')
+    const events = createAntigravityHookEvents({
+      ctx,
+      env: { HARNESS_BROKER_RUNTIME_ID: 'rt-lazy' },
+      callbackSocket,
+      onReady: () => {},
+      onWorkspaceMismatch: () => {},
+      onMissedMail: () => {},
+    })
+    const hook = (event: string, payload: Record<string, unknown>) =>
+      events.accept({
+        invocationId: 'inv-lazy',
+        runtimeId: 'rt-lazy',
+        generation: ANTIGRAVITY_HOOK_GENERATION,
+        callbackSocket,
+        startedAt: Date.now(),
+        event,
+        payload: { transcriptPath, ...payload },
+      } as never)
+    try {
+      await hook('SessionStart', {})
+      await hook('PreInvocation', { invocationNum: 0, lastUserInput: 'Hi', initialNumSteps: 1 })
+      writeFileSync(
+        transcriptPath,
+        `${JSON.stringify({ step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', status: 'DONE', created_at: '2026-11-20T01:31:51Z', content: '<USER_REQUEST>\nHi\n</USER_REQUEST>\n' })}\n`
+      )
+      await hook('PostInvocation', {})
+      appendFileSync(
+        transcriptPath,
+        `${JSON.stringify({ step_index: 1, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'DONE', created_at: '2026-11-20T01:31:58Z', content: 'Hey Lance!' })}\n`
+      )
+      const deadline = Date.now() + 2000
+      while (Date.now() < deadline && !emitted.includes('assistant.message.completed')) {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+      expect(emitted).toContain('assistant.message.completed')
+    } finally {
+      events.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 })
