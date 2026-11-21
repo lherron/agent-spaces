@@ -21,10 +21,13 @@ def main():
     parser.add_argument('--suite', choices=['wire', 'embed', 'both'], default='both')
     args = parser.parse_args()
     import tomllib
-    deps = tomllib.loads((ROOT / 'crates/Cargo.toml').read_text())['workspace']['dependencies']
-    revs = {v['rev'] for k, v in deps.items() if k.startswith('cardo-')}
+    # Match the commit Cargo.lock locked, so a pin spelled as a tag, a tag
+    # object id or a commit all resolve to the same checkout (cardo-app-guide §3.11).
+    lock = tomllib.loads((ROOT / 'crates/Cargo.lock').read_text())['package']
+    revs = {p['source'].rsplit('#', 1)[1] for p in lock
+            if p['name'].startswith('cardo-') and 'github.com/lherron/cardo' in p.get('source', '')}
     if len(revs) != 1:
-        parser.error('all cardo crates must pin one revision')
+        parser.error(f'Cargo.lock must lock every cardo crate to one commit, found {sorted(revs)}')
     rev = revs.pop()
     # Reuse Cargo's exact checkout; never depend on another repo's moving HEAD.
     cargo = Path(os.environ.get('CARGO_HOME', Path.home() / '.cargo'))
@@ -48,7 +51,14 @@ def main():
     profile = AspdProfile(args.workdir, str(args.release.resolve()))
     if not Path(profile.host_binary).is_file():
         parser.error(f'no raspd launcher in {args.release}')
+    cli = shutil.which('cardo')
+    try:
+        cli_version = subprocess.run([cli, '--version'], capture_output=True, text=True, timeout=10).stdout.strip() if cli else ''
+    except (OSError, subprocess.TimeoutExpired):
+        cli_version = ''
+    # The embed suite grades with the installed CLI; record it so a skew shows (§3.11).
     print(f'cardo={rev} release={args.release.resolve()} protocol=3', flush=True)
+    print(f'cardo-cli={cli or "missing"} version={cli_version or "unknown"}', flush=True)
     failed = False
     if args.suite in ('wire', 'both'):
         try:
