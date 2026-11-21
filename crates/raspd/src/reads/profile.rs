@@ -430,57 +430,6 @@ fn placement(value: Option<&J>, path: &str) -> R<Option<Placement>> {
     Ok(Some(placement))
 }
 
-fn jobs(value: Option<&J>, path: &str) -> R<()> {
-    let Some(value) = value else { return Ok(()) };
-    if !value.is_record() {
-        return fail(path, "must be a table");
-    }
-    assert_only_keys(value, &["default_node"], path)?;
-    if let Some(raw) = value.get("default_node")
-        && let Err(message) = job_execution_nodes(raw)
-    {
-        return fail(&format!("{path}/default_node"), message);
-    }
-    Ok(())
-}
-
-/// `normalizeJobExecutionNodes`, for its verdict only.
-fn job_execution_nodes(value: &J) -> Result<(), String> {
-    let authored: Vec<&J> = match value {
-        J::Str(_) => vec![value],
-        J::Arr(items) => items.iter().collect(),
-        _ => vec![&J::Null],
-    };
-    if !matches!(value, J::Str(_) | J::Arr(_)) || authored.iter().any(|n| !matches!(n, J::Str(_))) {
-        return Err("must be a node id string, an array of node id strings, or \"all\"".into());
-    }
-    if authored.is_empty() {
-        return Err("must contain at least one node id".into());
-    }
-    let mut nodes: Vec<&str> = vec![];
-    for n in authored {
-        if let J::Str(s) = n
-            && !nodes.contains(&s.as_str())
-        {
-            nodes.push(s);
-        }
-    }
-    if nodes.contains(&"local") {
-        return Err("\"local\" is not allowed for job execution ownership".into());
-    }
-    if nodes.contains(&"all") && nodes.len() != 1 {
-        return Err("\"all\" cannot be mixed with concrete node ids".into());
-    }
-    for node in nodes {
-        if node != "all" && !is_node_id(node) {
-            return Err(format!(
-                "\"{node}\" must be a node id matching [A-Za-z0-9._-]{{1,64}}"
-            ));
-        }
-    }
-    Ok(())
-}
-
 fn claude_options(value: &J, path: &str) -> R<()> {
     if !value.is_record() {
         return fail(path, "must be a table");
@@ -609,7 +558,6 @@ pub fn parse(content: &str) -> R<Profile> {
             "claims_task",
             "placement",
             "provisioning",
-            "jobs",
             "identity",
             "priming",
             "priming_file",
@@ -641,7 +589,6 @@ pub fn parse(content: &str) -> R<Profile> {
     }
     profile.placement = placement(parsed.get("placement"), "/placement")?;
     profile.provisioning = provisioning(parsed.get("provisioning"), "/provisioning")?;
-    jobs(parsed.get("jobs"), "/jobs")?;
     profile.identity_role = identity(parsed.get("identity"), "/identity")?;
     profile.identity_display = parsed
         .get("identity")

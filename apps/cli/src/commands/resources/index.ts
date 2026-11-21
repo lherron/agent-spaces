@@ -56,6 +56,8 @@ export function registerResourcesCommands(program: Command): void {
           agentId: agent,
           scopeRef: `agent:${agent}:project:${projectId}`,
         },
+      }).catch((error: unknown) => {
+        throw withResourceErrorCode(error)
       })
 
       process.stdout.write(`${JSON.stringify(plan, null, 2)}\n`)
@@ -78,13 +80,21 @@ function formatResourcesSummary(
     counts.set(kind, (counts.get(kind) ?? 0) + 1)
   }
 
-  const ordered = ['scheduled-job', 'interface-binding', 'event-hook']
+  const ordered = ['interface-binding', 'event-hook']
     .filter((kind) => counts.has(kind))
     .map((kind) => `${kind}=${counts.get(kind)}`)
     .join(' ')
   return `Compiled resources plan for ${agent}@${projectId}: ${resources.length} resources${
     ordered ? ` (${ordered})` : ''
   }\nAgent root: ${agentRoot}\n`
+}
+
+// Resource refusals carry a stable code (for example SCHEDULE_MODULE_OWNED); print it.
+function withResourceErrorCode(error: unknown): unknown {
+  if (!(error instanceof Error) || !('code' in error) || typeof error.code !== 'string') {
+    return error
+  }
+  return new Error(`${error.code}: ${error.message}`)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

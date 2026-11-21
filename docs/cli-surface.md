@@ -156,8 +156,9 @@ The git registry and its `asp repo publish/tags/gc` verbs were retired
   memory targets (`memory`, `user`, `persona`: `inspect`, `read`, `add`,
   `replace`, `remove`, `scan`, `snapshot`, `diff`, `paths`).
 - `asp resources plan <agent> --project <project>` — compile an agent-authored runtime
-  resources plan (schedules/channels/event-hooks declared under the agent
-  home).
+  resources plan (channels and event-hooks declared under the agent home;
+  schedules belong to the praesidium-kernel schedule module and are refused
+  with `SCHEDULE_MODULE_OWNED`).
 - `asp agents catalog --context <file> [--json]` / `asp agents inspect --request <file> --context <file> [--json]`
   — read-only agent catalog and inspection with explicit v2 evaluation context
   and inspection request files; no scaffolding commands are implemented.

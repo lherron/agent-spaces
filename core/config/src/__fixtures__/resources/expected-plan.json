@@ -8,45 +8,6 @@
   },
   "resources": [
     {
-      "projectionId": "agent-directory:agent:smokey:project:agent-spaces:scheduled-job:daily-triage",
-      "resourceKind": "scheduled-job",
-      "projectionTable": "jobs",
-      "projectionPk": "agent-smokey.daily-triage",
-      "sourceOwnerScopeRef": "agent:smokey:project:agent-spaces",
-      "resourceName": "daily-triage",
-      "sourcePath": "agents/smokey/schedules/daily-triage.toml",
-      "sourceHash": "sha256-canonical-json/v1:4bc88e59a4360da45d0b98a6d33cc547548c44c8d33a852f3ff398a3e7994342",
-      "desiredProjectionHash": "sha256-canonical-json/v1:f144cdf218cafb31379bf256c86b0bfad0da28d2984b9ee0e12a700a327e9d7f",
-      "desiredJson": {
-        "kind": "scheduled-job",
-        "slug": "agent-smokey.daily-triage",
-        "projectId": "agent-spaces",
-        "agentId": "smokey",
-        "scopeRef": "agent:smokey:project:agent-spaces:task:primary",
-        "laneRef": "main",
-        "title": "Daily triage",
-        "disabled": false,
-        "trigger": {
-          "kind": "schedule"
-        },
-        "schedule": {
-          "cron": "0 8 * * 1-5",
-          "windowStart": "08:00",
-          "windowEnd": "18:00",
-          "windowMinutes": 30
-        },
-        "input": {
-          "content": "Review new inbox tasks and summarize the highest-risk platform work."
-        }
-      },
-      "sourceVersion": 1,
-      "managedBy": "agent-directory",
-      "origin": "created",
-      "lastReconciledAt": "pending-apply",
-      "createdAt": "pending-apply",
-      "updatedAt": "pending-apply"
-    },
-    {
       "projectionId": "agent-directory:agent:smokey:project:agent-spaces:interface-binding:discord-smoke",
       "resourceKind": "interface-binding",
       "projectionTable": "interface_bindings",

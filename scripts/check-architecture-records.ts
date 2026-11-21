@@ -156,12 +156,7 @@ async function validate(records: ArchitectureRecord[]): Promise<string[]> {
       }
     }
   }
-  for (const id of [
-    `${project}.architecture-law`,
-    `${project}.verify-gate`,
-    'acp.jobs.node-execution-ownership',
-    'acp.jobs.static-owner-set-no-peer-makeup.v1',
-  ]) {
+  for (const id of [`${project}.architecture-law`, `${project}.verify-gate`]) {
     if (!ids.has(id)) findings.push(`architecture/records: missing required record ${id}`)
   }
   const justfile = await readFile(join(root, 'justfile'), 'utf8')

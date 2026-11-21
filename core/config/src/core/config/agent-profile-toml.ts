@@ -2,17 +2,11 @@ import TOML from '@iarna/toml'
 import { PROVISIONING_SCALAR_KEYS, PROVISIONING_SCALAR_KINDS, validateToken } from 'agent-scope'
 
 import { ConfigParseError, ConfigValidationError } from '../errors.js'
-import type {
-  AgentProfileJobs,
-  AgentProfilePlacement,
-  AgentRuntimeProfile,
-  RunMode,
-} from '../types/agent-profile.js'
+import type { AgentProfilePlacement, AgentRuntimeProfile, RunMode } from '../types/agent-profile.js'
 import { type AgentIdentity, ROSTER_SLOT_TOKENS } from '../types/agent-profile.js'
 import { HARNESS_IDS, isHarnessId } from '../types/harness.js'
 import { type SpaceRefString, isSpaceRefString } from '../types/refs.js'
 import type { ClaudeOptions, CodexOptions, ProvisioningSettings } from '../types/targets.js'
-import { normalizeJobExecutionNodes } from './job-execution-nodes.js'
 
 const AGENT_PROFILE_FILENAME = 'agent-profile.toml'
 const RUN_MODES = new Set<RunMode>(['query', 'heartbeat', 'task', 'maintenance'])
@@ -440,26 +434,6 @@ function assertConsistentFamilyHomes(
   }
 }
 
-function parseJobs(value: unknown, source: string, path: string): AgentProfileJobs | undefined {
-  if (value === undefined) {
-    return undefined
-  }
-  if (!isPlainObject(value)) {
-    fail(source, path, 'must be a table', 'type')
-  }
-  assertOnlyKeys(value, ['default_node'], source, path)
-
-  const jobs: AgentProfileJobs = {}
-  if (value['default_node'] !== undefined) {
-    const result = normalizeJobExecutionNodes(value['default_node'])
-    if (!result.ok) {
-      fail(source, `${path}/default_node`, result.message, result.code)
-    }
-    jobs.default_node = result.nodes
-  }
-  return jobs
-}
-
 function parseClaudeOptions(
   value: unknown,
   source: string,
@@ -594,7 +568,6 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
       'claims_task',
       'placement',
       'provisioning',
-      'jobs',
       'identity',
       'priming',
       'priming_file',
@@ -640,10 +613,6 @@ export function parseAgentProfile(content: string, filePath?: string): AgentRunt
   const provisioning = parseProvisioningSettings(parsed['provisioning'], source, '/provisioning')
   if (provisioning !== undefined) {
     profile.provisioning = provisioning
-  }
-  const jobs = parseJobs(parsed['jobs'], source, '/jobs')
-  if (jobs !== undefined) {
-    profile.jobs = jobs
   }
 
   profile.identity = parseIdentity(parsed['identity'], source, '/identity')

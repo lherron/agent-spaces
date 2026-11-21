@@ -3,9 +3,6 @@ import { readFile, readdir } from 'node:fs/promises'
 import { basename, dirname, join, normalize, sep } from 'node:path'
 import TOML from '@iarna/toml'
 import { createCanonicalHasher } from 'spaces-runtime-contracts'
-import { parseAgentProfile } from '../core/config/agent-profile-toml.js'
-import { normalizeJobExecutionNodes } from '../core/config/job-execution-nodes.js'
-import { readAgentProfileSource } from '../resolver/agent-profile-source.js'
 
 export type ResourcesPlanCompileOptions = {
   agentRoot: string
@@ -28,7 +25,7 @@ export type ResourcesPlan = {
   resources: ResourceProjection[]
 }
 
-type ResourceKind = 'scheduled-job' | 'interface-binding' | 'event-hook'
+type ResourceKind = 'interface-binding' | 'event-hook'
 
 type ParsedToml = Record<string, unknown>
 
@@ -93,7 +90,6 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]'])
 
 const hasher = createCanonicalHasher()
 const RESOURCE_DIRECTORIES: ReadonlyArray<{ dir: string; kind: ResourceKind }> = [
-  { dir: 'schedules', kind: 'scheduled-job' },
   { dir: 'channels', kind: 'interface-binding' },
   { dir: 'event-hooks', kind: 'event-hook' },
 ]
@@ -101,14 +97,9 @@ const RESOURCE_DIRECTORIES: ReadonlyArray<{ dir: string; kind: ResourceKind }> =
 export async function compileResourcesPlan(
   options: ResourcesPlanCompileOptions
 ): Promise<ResourcesPlan> {
-  const profileSource = readAgentProfileSource(options.agentRoot)
-  const defaultExecutionNodes =
-    profileSource === undefined
-      ? undefined
-      : parseAgentProfile(profileSource.content, profileSource.path).jobs?.default_node
   const resources = []
   for (const file of await discoverResourceFiles(options)) {
-    resources.push(compileResource(file, options.owner, options.agentRoot, defaultExecutionNodes))
+    resources.push(compileResource(file, options.owner, options.agentRoot))
   }
 
   return {
@@ -123,15 +114,8 @@ export async function compileResourcesPlan(
   }
 }
 
-function compileResource(
-  file: ResourceFile,
-  owner: Owner,
-  agentRoot: string,
-  defaultExecutionNodes: string[] | undefined
-): ResourceProjection {
+function compileResource(file: ResourceFile, owner: Owner, agentRoot: string): ResourceProjection {
   switch (file.kind) {
-    case 'scheduled-job':
-      return compileSchedule(file, owner, defaultExecutionNodes)
     case 'interface-binding':
       return compileChannel(file, owner)
     case 'event-hook':
@@ -146,12 +130,14 @@ async function discoverResourceFiles(
     const files: ResourceFile[] = []
     for (const includePath of options.includePaths) {
       const relPath = normalizeRelativePath(includePath)
-      if (relPath.split('/')[0] === 'hooks') {
+      const first = relPath.split('/')[0]
+      if (first === 'hooks') {
         throw resourceError(
           'RESERVED_HOOKS_DIRECTORY',
           `Reserved hooks directory is not a runtime resource directory; use event-hooks for ${relPath}`
         )
       }
+      if (first === 'schedules') throw scheduleModuleOwned(relPath)
       const parsed = await readToml(resolveIncludedResourcePath(options.agentRoot, relPath))
       files.push({ kind: classifyResource(relPath, parsed), relPath, parsed })
     }
@@ -195,155 +181,22 @@ function resolveIncludedResourcePath(agentRoot: string, relPath: string): string
 
 function classifyResource(relPath: string, parsed: ParsedToml): ResourceKind {
   const first = relPath.split('/')[0]
-  if (first === 'schedules') return 'scheduled-job'
   if (first === 'channels') return 'interface-binding'
   if (first === 'event-hooks') return 'event-hook'
   if (isRecord(parsed['gateway'])) return 'interface-binding'
   if (isRecord(parsed['event'])) return 'event-hook'
-  if (isRecord(parsed['trigger']) || isRecord(parsed['schedule'])) return 'scheduled-job'
+  if (isRecord(parsed['trigger']) || isRecord(parsed['schedule']))
+    throw scheduleModuleOwned(relPath)
   throw resourceError('UNKNOWN_RESOURCE_KIND', `Could not classify runtime resource ${relPath}`)
 }
 
-function compileSchedule(
-  file: ResourceFile,
-  owner: Owner,
-  defaultExecutionNodes: string[] | undefined
-): ResourceProjection {
-  const source = file.parsed
-  if (source['timezone'] !== undefined) {
-    throw resourceError(
-      'UNSUPPORTED_TIMEZONE',
-      `${file.relPath}: top-level timezone is unsupported; set [trigger].timezone instead`
-    )
-  }
-  const timezone = readScheduleTimezone(source, file.relPath)
-  const freshSessionFlow = readFreshSessionFlow(source, file.relPath)
-
-  const target = readTarget(source)
-  assertSameOwnerTarget(target, owner, file.relPath)
-
-  const name = requiredString(source, 'name', file.relPath)
-  const task = target.task ?? 'primary'
-  const lane = target.lane ?? 'main'
-  const scopeRef = scopeRefFor(owner.agentId, owner.projectId, task)
-  const executionNodes = readScheduleExecutionNodes(source, file.relPath, defaultExecutionNodes)
-  const output = readOutput(source, file.relPath)
-  const desiredJson = {
-    kind: 'scheduled-job',
-    slug: projectionPk(owner.agentId, name),
-    projectId: owner.projectId,
-    agentId: owner.agentId,
-    scopeRef,
-    laneRef: laneRefFor(lane),
-    title: optionalString(source, 'title'),
-    disabled: source['enabled'] === false,
-    trigger: {
-      kind: 'schedule',
-    },
-    schedule: {
-      cron: requiredNestedString(source, 'trigger', 'cron', file.relPath),
-      windowStart: optionalNestedString(source, 'trigger', 'windowStart'),
-      windowEnd: optionalNestedString(source, 'trigger', 'windowEnd'),
-      windowMinutes: optionalNestedNumber(source, 'trigger', 'windowMinutes'),
-      ...(timezone !== undefined ? { timezone } : {}),
-    },
-    ...(executionNodes !== undefined ? { execution: { nodes: executionNodes } } : {}),
-    input: cloneRecord(source['input']),
-    ...(freshSessionFlow !== undefined
-      ? { flow: freshSessionFlow }
-      : isRecord(source['flow'])
-        ? { flow: cloneRecord(source['flow']) }
-        : {}),
-    ...(output !== undefined ? { output } : {}),
-  }
-
-  return resourceProjection(file, owner, name, 'scheduled-job', 'jobs', desiredJson)
-}
-
-function readScheduleTimezone(source: ParsedToml, relPath: string): string | undefined {
-  const trigger = source['trigger']
-  if (!isRecord(trigger) || trigger['timezone'] === undefined) return undefined
-  const timezone = trigger['timezone']
-  if (typeof timezone !== 'string' || !isIanaTimeZone(timezone)) {
-    throw resourceError(
-      'INVALID_TIMEZONE',
-      `${relPath}: [trigger].timezone must be an IANA time zone, got ${JSON.stringify(timezone)}`
-    )
-  }
-  return timezone
-}
-
-function isIanaTimeZone(value: string): boolean {
-  if (value.trim().length === 0) return false
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: value })
-    return true
-  } catch {
-    return false
-  }
-}
-
-function readFreshSessionFlow(
-  source: ParsedToml,
-  relPath: string
-): { sequence: Array<{ id: 'run'; fresh: true; input: string }> } | undefined {
-  const freshSession = source['freshSession']
-  if (freshSession === undefined || freshSession === false) return undefined
-  if (freshSession !== true) {
-    throw resourceError(
-      'INVALID_FRESH_SESSION',
-      `${relPath}: freshSession must be a boolean when declared`
-    )
-  }
-  if (source['flow'] !== undefined) {
-    throw resourceError(
-      'AMBIGUOUS_SCHEDULE_FLOW',
-      `${relPath}: freshSession cannot be combined with an authored flow`
-    )
-  }
-
-  const input = source['input']
-  const content = isRecord(input) ? input['content'] : undefined
-  if (typeof content !== 'string' || content.trim().length === 0) {
-    throw resourceError(
-      'MISSING_FRESH_SESSION_INPUT',
-      `${relPath}: freshSession requires non-empty [input].content`
-    )
-  }
-
-  return {
-    sequence: [{ id: 'run', fresh: true, input: content }],
-  }
-}
-
-function readScheduleExecutionNodes(
-  source: ParsedToml,
-  relPath: string,
-  defaultExecutionNodes: string[] | undefined
-): string[] | undefined {
-  const execution = source['execution']
-  if (execution === undefined) return defaultExecutionNodes
-  if (!isRecord(execution)) {
-    throw resourceError('INVALID_EXECUTION_PLACEMENT', `${relPath}: [execution] must be a table`)
-  }
-  const keys = Object.keys(execution)
-  if (keys.some((key) => key !== 'node')) {
-    throw resourceError('INVALID_EXECUTION_PLACEMENT', `${relPath}: [execution] only supports node`)
-  }
-  if (execution['node'] === undefined) {
-    throw resourceError(
-      'INVALID_EXECUTION_PLACEMENT',
-      `${relPath}: execution.node is required when [execution] is declared`
-    )
-  }
-  const result = normalizeJobExecutionNodes(execution['node'])
-  if (!result.ok) {
-    throw resourceError(
-      'INVALID_EXECUTION_PLACEMENT',
-      `${relPath}: execution.node ${result.message}`
-    )
-  }
-  return result.nodes
+// praesidium-kernel's schedule module reads and validates schedules/*.toml itself, and ACP
+// answers a scheduled-job resource with schedule_module_owned, so a plan never carries one.
+function scheduleModuleOwned(relPath: string): Error & { code: string } {
+  return resourceError(
+    'SCHEDULE_MODULE_OWNED',
+    `${relPath}: schedules are owned by the praesidium-kernel schedule module, which reads schedules/*.toml directly; they are not runtime resources`
+  )
 }
 
 function compileChannel(file: ResourceFile, owner: Owner): ResourceProjection {
@@ -749,16 +602,6 @@ function optionalNestedString(
   const value = source[section]
   if (!isRecord(value)) return undefined
   return asOptionalString(value[key])
-}
-
-function optionalNestedNumber(
-  source: ParsedToml,
-  section: string,
-  key: string
-): number | undefined {
-  const value = source[section]
-  if (!isRecord(value)) return undefined
-  return typeof value[key] === 'number' ? value[key] : undefined
 }
 
 function cloneRecord(value: unknown): Record<string, unknown> {

@@ -2,13 +2,6 @@
 
 # agent-spaces — Accepted Risks
 
-## acp.jobs.static-owner-set-no-peer-makeup.v1
-
-- Severity: medium
-- Accepted by: Lance
-- Blast radius: When one member of a schedule's static owner set is down, healthy members do not execute that member's occurrences. A multi-member set is independent per-node fan-out and provides neither failover nor cross-node exactly-once.
-- Mitigation: Keep the producer contract explicit and static, preserve catch-up policy, and require ACP's documented break-before-make relocation procedure for planned owner changes.
-
 ## agent-spaces.pi-delivery-asserted-turn-start
 
 - Severity: medium

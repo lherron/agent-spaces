@@ -18,26 +18,13 @@ computed from `desiredJson`. Both use `createCanonicalHasher()` with
 The fixture root is `agents/smokey`, representing source owner
 `agent:smokey:project:agent-spaces`.
 
-Scheduled resources can request a new agent context on every run with top-level
-`freshSession = true` and a non-empty `[input].content`:
+The plan carries channels (`interface-binding`) and event hooks (`event-hook`).
+Schedules are not runtime resources: praesidium-kernel's schedule module reads and
+validates each agent's `schedules/*.toml` itself. The directory walk skips
+`schedules/`, and an `--include` of a file under `schedules/`, or of any file
+whose `[trigger]` or `[schedule]` table classifies it as a schedule, is refused
+with `SCHEDULE_MODULE_OWNED`.
 
-```toml
-freshSession = true
-
-[input]
-content = "Run this scheduled prompt in a fresh context."
-```
-
-The compiler preserves the normal top-level `input` projection and lowers this
-sugar to `flow.sequence = [{ id = "run", fresh = true, input = content }]`.
-When a flow is present, the flow owns dispatch semantics. Advanced or multi-step
-jobs should omit `freshSession` and author the existing explicit form instead:
-
-```toml
-[[flow.sequence]]
-id = "run"
-fresh = true
-input = "Run the first step in a fresh context."
-```
-
-`freshSession = true` cannot be combined with any authored `flow`.
+`variants/` and `invalid/` hold single-file inputs compiled with `--include`;
+`variants/discord-smoke-comments.toml` reorders and comments
+`agents/smokey/channels/discord-smoke.toml` and must hash to the same `sourceHash`.

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import expectedPlan from '../__fixtures__/resources/expected-plan.json'
@@ -22,15 +22,6 @@ type CompileResult =
   | { ok: true; plan: ResourcesPlan }
   | { ok: false; code: string; message: string }
 
-function planOf(result: CompileResult): ResourcesPlan {
-  if (!result.ok) throw new Error(`expected compile success, got ${result.code}: ${result.message}`)
-  return result.plan
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 async function compileFixture(agentRoot: string, includePaths?: string[]): Promise<CompileResult> {
   try {
     const plan = await compileResourcesPlan({
@@ -48,28 +39,21 @@ async function compileFixture(agentRoot: string, includePaths?: string[]): Promi
   }
 }
 
-async function compileInlineResource(options: {
-  profile?: string
-  schedule: string
-}): Promise<CompileResult> {
-  const agentRoot = mkdtempSync(join(tmpdir(), 'asp-resource-owner-set-'))
-  mkdirSync(join(agentRoot, 'schedules'))
-  writeFileSync(join(agentRoot, 'schedules', 'job.toml'), options.schedule)
-  if (options.profile !== undefined) {
-    writeFileSync(join(agentRoot, 'agent-profile.toml'), options.profile)
+async function compileInlineAgent(files: Record<string, string>, includePaths?: string[]) {
+  const agentRoot = mkdtempSync(join(tmpdir(), 'asp-resource-agent-'))
+  for (const [relPath, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(agentRoot, relPath)), { recursive: true })
+    writeFileSync(join(agentRoot, relPath), content)
   }
   try {
-    const plan = await compileResourcesPlan({
-      agentRoot,
-      owner: smokeyOwner,
-    })
-    return { ok: true, plan }
+    const plan = await compileResourcesPlan({ agentRoot, owner: smokeyOwner, includePaths })
+    return { ok: true, plan } as const
   } catch (error) {
     return {
       ok: false,
       code: error instanceof Error && 'code' in error ? String(error.code) : 'UNKNOWN',
       message: error instanceof Error ? error.message : String(error),
-    }
+    } as const
   } finally {
     rmSync(agentRoot, { recursive: true, force: true })
   }
@@ -77,7 +61,7 @@ async function compileInlineResource(options: {
 
 const inlineSchedule = `
 schema = 1
-name = "owner-set-test"
+name = "kernel-owned"
 enabled = true
 
 [target]
@@ -88,7 +72,7 @@ agent = "smokey"
 cron = "0 * * * *"
 
 [input]
-content = "test owner set"
+content = "owned by the kernel schedule module"
 `
 
 function findByKind(plan: typeof expectedPlan, kind: string) {
@@ -112,7 +96,7 @@ function collectTypeScriptFiles(dir: string): string[] {
 }
 
 describe('agent-authored runtime resources plan compiler', () => {
-  test('emits deterministic versioned machine-readable plan JSON for schedules, channels, and event hooks', async () => {
+  test('emits deterministic versioned machine-readable plan JSON for channels and event hooks', async () => {
     // Test context: Phase A red. This must fail only because the resources compiler is unimplemented.
     const first = await compileFixture('agents/smokey')
     const second = await compileFixture('agents/smokey')
@@ -125,271 +109,33 @@ describe('agent-authored runtime resources plan compiler', () => {
   })
 
   test('normalizes sourceHash across TOML formatting and comment-only changes', async () => {
-    const canonical = await compileFixture('agents/smokey', ['schedules/daily-triage.toml'])
-    const formatted = await compileFixture('../../variants', ['daily-triage-comments.toml'])
+    const canonical = await compileFixture('agents/smokey', ['channels/discord-smoke.toml'])
+    const formatted = await compileFixture('../../variants', ['discord-smoke-comments.toml'])
+    const sourceHash = findByKind(expectedPlan, 'interface-binding').sourceHash
 
-    expect(canonical).toEqual({
-      ok: true,
-      plan: expect.objectContaining({
-        resources: [
-          expect.objectContaining({
-            sourceHash:
-              'sha256-canonical-json/v1:4bc88e59a4360da45d0b98a6d33cc547548c44c8d33a852f3ff398a3e7994342',
-          }),
-        ],
-      }),
-    })
-    expect(formatted).toEqual({
-      ok: true,
-      plan: expect.objectContaining({
-        resources: [
-          expect.objectContaining({
-            sourceHash:
-              'sha256-canonical-json/v1:4bc88e59a4360da45d0b98a6d33cc547548c44c8d33a852f3ff398a3e7994342',
-          }),
-        ],
-      }),
-    })
-  })
-
-  test.each([
-    ['node list (dedup + sort)', '["svc", "max3", "svc"]', ['max3', 'svc']],
-    ['node scalar', '"svc"', ['svc']],
-    ['all wildcard', '"all"', ['all']],
-    ['repeated all wildcard', '["all", "all"]', ['all']],
-  ])(
-    'uses the canonical profile default owner set when a schedule has no override: %s',
-    async (_label, defaultNode, expected) => {
-      const result = await compileInlineResource({
-        profile: `
-version = 4
-
-[jobs]
-default_node = ${defaultNode}
-`,
-        schedule: inlineSchedule,
-      })
-
+    for (const result of [canonical, formatted]) {
       expect(result).toEqual({
         ok: true,
-        plan: expect.objectContaining({
-          resources: [
-            expect.objectContaining({
-              desiredJson: expect.objectContaining({
-                execution: { nodes: expected },
-              }),
-            }),
-          ],
-        }),
+        plan: expect.objectContaining({ resources: [expect.objectContaining({ sourceHash })] }),
       })
     }
-  )
-
-  test.each([
-    ['node scalar', 'node = "svc"', ['svc']],
-    ['node list', 'node = ["svc", "max3", "svc"]', ['max3', 'svc']],
-    ['all wildcard', 'node = "all"', ['all']],
-  ])('normalizes schedule execution override: %s', async (_label, authored, expected) => {
-    const result = await compileInlineResource({
-      profile: `
-version = 4
-
-[jobs]
-default_node = "fallback"
-`,
-      schedule: `${inlineSchedule}
-
-[execution]
-${authored}
-`,
-    })
-
-    expect(result).toEqual({
-      ok: true,
-      plan: expect.objectContaining({
-        resources: [
-          expect.objectContaining({
-            desiredJson: expect.objectContaining({
-              execution: { nodes: expected },
-            }),
-          }),
-        ],
-      }),
-    })
   })
 
-  test('omits execution placement when neither the profile nor schedule declares it', async () => {
-    const result = await compileInlineResource({ schedule: inlineSchedule })
+  test('refuses schedules: the kernel schedule module owns them', async () => {
+    const files = { 'schedules/job.toml': inlineSchedule, 'misc/job.toml': inlineSchedule }
+    const walked = await compileInlineAgent(files)
+    const byPath = await compileInlineAgent(files, ['schedules/absent.toml'])
+    const byContent = await compileInlineAgent(files, ['misc/job.toml'])
 
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.plan.resources[0]?.desiredJson).not.toHaveProperty('execution')
-  })
-
-  test.each(['[]', '"local"', '["local"]', '["svc", "local"]', '["all", "svc"]'])(
-    'rejects invalid profile jobs.default_node through resource compilation: %s',
-    async (authored) => {
-      const result = await compileInlineResource({
-        profile: `version = 4\n[jobs]\ndefault_node = ${authored}\n`,
-        schedule: inlineSchedule,
-      })
+    expect(walked).toEqual({ ok: true, plan: expect.objectContaining({ resources: [] }) })
+    for (const result of [byPath, byContent]) {
       expect(result).toEqual({
         ok: false,
-        code: 'CONFIG_VALIDATION_ERROR',
-        message: expect.stringContaining('default_node'),
+        code: 'SCHEDULE_MODULE_OWNED',
+        message: expect.stringContaining('schedule module'),
       })
     }
-  )
-
-  test.each([
-    ['empty set', 'node = []', 'execution.node must contain at least one node id'],
-    ['local scalar', 'node = "local"', 'execution.node "local" is not allowed'],
-    ['local list', 'node = ["local"]', 'execution.node "local" is not allowed'],
-    ['local mixed list', 'node = ["svc", "local"]', 'execution.node "local" is not allowed'],
-    [
-      'all mixed with concrete',
-      'node = ["all", "svc"]',
-      'execution.node "all" cannot be mixed with concrete node ids',
-    ],
-    ['malformed node', 'node = "bad/node"', 'execution.node "bad/node" must be a node id matching'],
-  ])('rejects invalid schedule execution placement: %s', async (_label, authored, reason) => {
-    const result = await compileInlineResource({
-      schedule: `${inlineSchedule}
-
-[execution]
-${authored}
-`,
-    })
-
-    expect(result).toEqual({
-      ok: false,
-      code: 'INVALID_EXECUTION_PLACEMENT',
-      message: expect.stringContaining(reason),
-    })
   })
-
-  test('projects schedule resources with flow steps for fresh scheduled agent sessions', async () => {
-    const result = await compileFixture('../../variants', ['schedule-flow.toml'])
-
-    expect(result).toEqual({
-      ok: true,
-      plan: expect.objectContaining({
-        resources: [
-          expect.objectContaining({
-            resourceKind: 'scheduled-job',
-            desiredJson: expect.objectContaining({
-              scopeRef: 'agent:smokey:project:agent-spaces:task:flow-triage',
-              flow: {
-                sequence: [
-                  {
-                    id: 'run',
-                    fresh: true,
-                    input: 'Run the flow triage job with fresh context.',
-                  },
-                ],
-              },
-            }),
-          }),
-        ],
-      }),
-    })
-  })
-
-  test('lowers freshSession schedule sugar to one fresh flow step with the original input', async () => {
-    const first = await compileFixture('../../variants', ['schedule-fresh-session.toml'])
-    const second = await compileFixture('../../variants', ['schedule-fresh-session.toml'])
-
-    expect(first.ok).toBe(true)
-    expect(second.ok).toBe(true)
-    if (!first.ok || !second.ok) return
-
-    const resource = first.plan.resources[0]
-    expect(resource).toEqual(
-      expect.objectContaining({
-        resourceKind: 'scheduled-job',
-        sourceOwnerScopeRef: smokeyOwner.scopeRef,
-        resourceName: 'fresh-session-triage',
-        sourceHash: expect.stringMatching(/^sha256-canonical-json\/v1:/),
-        desiredProjectionHash: expect.stringMatching(/^sha256-canonical-json\/v1:/),
-        desiredJson: expect.objectContaining({
-          scopeRef: 'agent:smokey:project:agent-spaces:task:fresh-session-triage',
-          laneRef: 'main',
-          disabled: true,
-          trigger: { kind: 'schedule' },
-          schedule: {
-            cron: '15 9 * * 1-5',
-            windowStart: '09:00',
-            windowEnd: '17:00',
-            windowMinutes: 20,
-          },
-          input: { content: '  Run fresh triage with the authored spacing.  ' },
-          flow: {
-            sequence: [
-              {
-                id: 'run',
-                fresh: true,
-                input: '  Run fresh triage with the authored spacing.  ',
-              },
-            ],
-          },
-        }),
-      })
-    )
-    expect(second.plan.resources[0]).toEqual(resource)
-  })
-
-  test('treats freshSession = false as a no-op', async () => {
-    const result = await compileInlineResource({
-      schedule: inlineSchedule.replace(
-        'enabled = true',
-        `enabled = true
-freshSession = false`
-      ),
-    })
-
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.plan.resources[0]?.desiredJson).not.toHaveProperty('flow')
-  })
-
-  test.each([
-    ['authored flow', 'schedule-fresh-session-flow.toml', 'AMBIGUOUS_SCHEDULE_FLOW', 'flow'],
-    [
-      'non-boolean sugar',
-      'schedule-fresh-session-invalid-type.toml',
-      'INVALID_FRESH_SESSION',
-      'freshSession',
-    ],
-    [
-      'missing input',
-      'schedule-fresh-session-missing-input.toml',
-      'MISSING_FRESH_SESSION_INPUT',
-      '[input].content',
-    ],
-    [
-      'blank input',
-      'schedule-fresh-session-blank-input.toml',
-      'MISSING_FRESH_SESSION_INPUT',
-      '[input].content',
-    ],
-    [
-      'non-string input',
-      'schedule-fresh-session-non-string-input.toml',
-      'MISSING_FRESH_SESSION_INPUT',
-      '[input].content',
-    ],
-  ])(
-    'rejects invalid freshSession declaration with %s',
-    async (_label, filename, code, messageFragment) => {
-      const result = await compileFixture('../../invalid', [filename])
-
-      expect(result).toEqual({
-        ok: false,
-        code,
-        message: expect.stringContaining(messageFragment),
-      })
-    }
-  )
 
   test('rejects non-loopback event hook output webhooks before ACP apply', async () => {
     const result = await compileFixture('../../invalid', ['event-hook-output-nonloopback.toml'])
@@ -397,50 +143,6 @@ freshSession = false`
       ok: false,
       code: 'INVALID_OUTPUT_SINK_URL',
       message: expect.stringContaining('loopback'),
-    })
-  })
-
-  test('rejects a top-level timezone and points at [trigger].timezone', async () => {
-    const result = await compileFixture('../../invalid', ['schedule-timezone.toml'])
-    expect(result).toEqual({
-      ok: false,
-      code: 'UNSUPPORTED_TIMEZONE',
-      message: expect.stringContaining('[trigger].timezone'),
-    })
-  })
-
-  test('passes [trigger].timezone through to the schedule', async () => {
-    const plan = planOf(
-      await compileInlineResource({
-        schedule: inlineSchedule.replace(
-          'cron = "0 * * * *"',
-          'cron = "0 2 * * *"\ntimezone = "America/Chicago"'
-        ),
-      })
-    )
-    expect(plan.resources[0]?.desiredJson['schedule']).toEqual({
-      cron: '0 2 * * *',
-      timezone: 'America/Chicago',
-    })
-  })
-
-  test('omits schedule.timezone when [trigger].timezone is absent', async () => {
-    const plan = planOf(await compileInlineResource({ schedule: inlineSchedule }))
-    const schedule = plan.resources[0]?.desiredJson['schedule']
-    expect(isRecord(schedule) && 'timezone' in schedule).toBe(false)
-  })
-
-  test('rejects a [trigger].timezone that is not an IANA zone', async () => {
-    const result = await compileInlineResource({
-      schedule: inlineSchedule.replace(
-        'cron = "0 * * * *"',
-        'cron = "0 2 * * *"\ntimezone = "America/Nowhere"'
-      ),
-    })
-    expect(result).toEqual({
-      ok: false,
-      code: 'INVALID_TIMEZONE',
-      message: expect.stringContaining('America/Nowhere'),
     })
   })
 
@@ -474,15 +176,9 @@ freshSession = false`
     })
   })
 
-  test('rejects cross-owner targets for schedules and channels in v1', async () => {
-    const schedule = await compileFixture('../../invalid', ['schedule-cross-owner-target.toml'])
+  test('rejects cross-owner targets for channels in v1', async () => {
     const channel = await compileFixture('../../invalid', ['channel-cross-owner-target.toml'])
 
-    expect(schedule).toEqual({
-      ok: false,
-      code: 'CROSS_OWNER_TARGET',
-      message: expect.stringContaining('cody'),
-    })
     expect(channel).toEqual({
       ok: false,
       code: 'CROSS_OWNER_TARGET',

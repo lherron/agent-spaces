@@ -1,0 +1,19 @@
+# Formatting and comments must not affect sourceHash.
+schema = 1
+name = "discord-smoke"
+enabled = true
+
+[target]
+roleName = "coordinator"
+task = "primary"
+lane = "main"
+agent = "smokey"
+project = "agent-spaces"
+
+[conversation]
+threadRef = "thread:1501224513390772225"
+ref = "channel:1501224513390772224"
+
+[gateway]
+type = "discord"   # gateway kind
+id = "acp-discord-smoke"

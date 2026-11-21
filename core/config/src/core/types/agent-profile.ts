@@ -45,11 +45,6 @@ export interface AgentProfileSession {
   additionalExec?: string[] | undefined
 }
 
-/** Source policy for managed scheduled-job execution ownership. */
-export interface AgentProfileJobs {
-  default_node?: string[] | undefined
-}
-
 /**
  * `participant-only`: HRC never launches this agent. Its seat is hosted
  * elsewhere and joins HRC as a direct participant; compiles are refused.
@@ -79,7 +74,6 @@ export interface AgentRuntimeProfile {
   claims_task?: boolean | undefined
   placement?: AgentProfilePlacement | undefined
   provisioning?: ProvisioningSettings | undefined
-  jobs?: AgentProfileJobs | undefined
   identity?: AgentIdentity | undefined
   priming?: string | undefined
   priming_file?: string | undefined

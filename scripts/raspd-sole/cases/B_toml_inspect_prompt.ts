@@ -132,8 +132,8 @@ const cases: ProbeCase[] = [
   profileCase(
     'toml_bigint',
     'profile',
-    `version = 4\n\n[provisioning]\nmodel = "opus"\n\n[jobs]\ndefault_node = 9007199254740993\n\n[spaces]\nbase = ["space:pm-dev@dev"]\n`,
-    'agent-profile.toml jobs.default_node is an integer beyond 2^53'
+    `version = 4\npriming = 9007199254740993\n\n[provisioning]\nmodel = "opus"\n\n[spaces]\nbase = ["space:pm-dev@dev"]\n`,
+    'agent-profile.toml priming is an integer beyond 2^53'
   ),
   profileCase(
     'toml_nonfinite_float',

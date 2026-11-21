@@ -62,7 +62,7 @@
           "type": "string"
         },
         "resourceKind": {
-          "enum": ["scheduled-job", "event-hook", "interface-binding"]
+          "enum": ["event-hook", "interface-binding"]
         },
         "projectionTable": {
           "enum": ["jobs", "interface_bindings"]

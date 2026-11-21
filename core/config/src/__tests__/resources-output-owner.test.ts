@@ -66,20 +66,20 @@ url = "http://127.0.0.1:18551/api/summaries"
 format = "discord_markdown"
 `
 
-function schedule(target: string, extra = ''): string {
+function channel(target: string): string {
   return `schema = 1
-name = "job"
+name = "chan"
+
+[gateway]
+id = "acp-discord"
+type = "discord"
+
+[conversation]
+ref = "channel:1"
 
 [target]
 ${target}
-
-[trigger]
-kind = "schedule"
-cron = "0 8 * * *"
-
-[input]
-content = "Run."
-${extra}`
+`
 }
 
 describe('event-hook output passthrough', () => {
@@ -164,10 +164,10 @@ describe('event-hook output passthrough', () => {
 })
 
 describe('owner mismatch messages', () => {
-  test('schedule targeting another project names both projects and the --project fix', async () => {
+  test('channel targeting another project names both projects and the --project fix', async () => {
     const result = await compileInline(
-      'schedules/job.toml',
-      schedule('project = "signal-pipeline"\nagent = "smokey"')
+      'channels/chan.toml',
+      channel('project = "signal-pipeline"\nagent = "smokey"')
     )
     expect(result).toMatchObject({ ok: false, code: 'CROSS_OWNER_TARGET' })
     if (result.ok) return
@@ -177,10 +177,10 @@ describe('owner mismatch messages', () => {
     expect(result.message).not.toContain('is outside owner smokey')
   })
 
-  test('schedule targeting another agent names the agents and the owner scope', async () => {
+  test('channel targeting another agent names the agents and the owner scope', async () => {
     const result = await compileInline(
-      'schedules/job.toml',
-      schedule('project = "agent-spaces"\nagent = "cody"')
+      'channels/chan.toml',
+      channel('project = "agent-spaces"\nagent = "cody"')
     )
     expect(result).toMatchObject({ ok: false, code: 'CROSS_OWNER_TARGET' })
     if (result.ok) return
@@ -188,8 +188,8 @@ describe('owner mismatch messages', () => {
     expect(result.message).toContain('smokey@agent-spaces')
   })
 
-  test('schedule with no target project says it is required', async () => {
-    const result = await compileInline('schedules/job.toml', schedule('agent = "smokey"'))
+  test('channel with no target project says it is required', async () => {
+    const result = await compileInline('channels/chan.toml', channel('agent = "smokey"'))
     expect(result).toMatchObject({ ok: false, code: 'CROSS_OWNER_TARGET' })
     if (result.ok) return
     expect(result.message).toContain('target.project is required')
@@ -206,49 +206,5 @@ describe('owner mismatch messages', () => {
     expect(result.message).toContain('target project signal-pipeline')
     expect(result.message).toContain('smokey@agent-spaces')
     expect(result.message).toContain('--project signal-pipeline')
-  })
-})
-
-describe('schedule output', () => {
-  test('passes [output] on a schedule through with the same validator', async () => {
-    const result = await compileInline(
-      'schedules/job.toml',
-      schedule(
-        'project = "agent-spaces"\nagent = "smokey"',
-        `\n${SINK}\n[output.delivery]\nmaxAttempts = 3\n`
-      )
-    )
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.resources[0]?.desiredJson['output']).toEqual({
-      sinks: [
-        {
-          kind: 'webhook',
-          url: 'http://127.0.0.1:18551/api/summaries',
-          format: 'discord_markdown',
-        },
-      ],
-      delivery: { maxAttempts: 3 },
-    })
-  })
-
-  test('refuses an unknown output key on a schedule', async () => {
-    const result = await compileInline(
-      'schedules/job.toml',
-      schedule('project = "agent-spaces"\nagent = "smokey"', `\n${SINK}headers = "x"\n`)
-    )
-    expect(result).toMatchObject({ ok: false, code: 'INVALID_OUTPUT' })
-    if (result.ok) return
-    expect(result.message).toContain('output.sinks[0].headers')
-  })
-
-  test('schedules without [output] carry no output key', async () => {
-    const result = await compileInline(
-      'schedules/job.toml',
-      schedule('project = "agent-spaces"\nagent = "smokey"')
-    )
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.resources[0]?.desiredJson).not.toHaveProperty('output')
   })
 })

@@ -80,26 +80,48 @@ describe('asp resources plan', () => {
     }
     expect(plan.schema).toBe('agent-authored-runtime-resources.plan/v1')
     expect(plan.resources.map((resource) => resource.resourceKind)).toEqual([
-      'scheduled-job',
       'interface-binding',
       'event-hook',
     ])
-    expect(plan.resources[2]?.desiredJson.trigger?.cooldown).toBe('300s')
-    expect(first.stderr).toContain('Compiled resources plan for smokey@agent-spaces: 3 resources')
+    expect(plan.resources[1]?.desiredJson.trigger?.cooldown).toBe('300s')
+    expect(first.stderr).toContain('Compiled resources plan for smokey@agent-spaces: 2 resources')
   })
 
   test('can compile a single included resource path', () => {
-    const result = runAspResourcesPlanInclude('schedules/daily-triage.toml')
+    const result = runAspResourcesPlanInclude('channels/discord-smoke.toml')
     const plan = JSON.parse(result.stdout) as {
       resources: Array<{ resourceKind: string; sourcePath: string }>
     }
 
     expect(plan.resources).toEqual([
       expect.objectContaining({
-        resourceKind: 'scheduled-job',
-        sourcePath: 'agents/smokey/schedules/daily-triage.toml',
+        resourceKind: 'interface-binding',
+        sourcePath: 'agents/smokey/channels/discord-smoke.toml',
       }),
     ])
     expect(result.stderr).toContain('Compiled resources plan for smokey@agent-spaces: 1 resources')
+  })
+
+  test('refuses a schedule include with its SCHEDULE_MODULE_OWNED code', () => {
+    const result = spawnSync(
+      'bun',
+      [
+        'run',
+        ASP_CLI,
+        'resources',
+        'plan',
+        'smokey',
+        '--project',
+        'agent-spaces',
+        '--agent-root',
+        RESOURCE_AGENT_ROOT,
+        '--include',
+        'schedules/daily-triage.toml',
+      ],
+      { encoding: 'utf8', env: { ...process.env, NO_COLOR: '1' } }
+    )
+    expect(result.status).not.toBe(0)
+    expect(result.stdout).toBe('')
+    expect(result.stderr).toContain('SCHEDULE_MODULE_OWNED: schedules/daily-triage.toml')
   })
 })

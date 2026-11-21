@@ -261,7 +261,11 @@ the directory directly.
 Agent-authored runtime resources:
 
 - `asp resources plan <agent> --project <project>` — compile an agent-authored runtime resources plan
-  (schedules/channels/event-hooks declared under the agent home)
+  (channels and event-hooks declared under the agent home)
+
+Schedules are not runtime resources: praesidium-kernel's schedule module reads
+and validates `schedules/*.toml` itself. The plan skips `schedules/`, and an
+`--include` of a schedule file is refused with `SCHEDULE_MODULE_OWNED`.
 
 A plan compiles for one project (`--project`): every resource's `[target]`
 must name the planned agent and project. A resource targeting another project

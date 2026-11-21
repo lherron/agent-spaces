@@ -10,6 +10,11 @@ exposes `plan` only. The reconcile/apply and consumer lifecycle sections below
 remain approved design intent owned by ACP, not additional ASP CLI verbs.
 The original current-state survey is dated to the proposal.
 
+Since T-14268 (2026-11-21) schedules are out of scope: praesidium-kernel's
+schedule module reads `schedules/*.toml` directly, ACP answers scheduled-job
+resources with `schedule_module_owned`, and the compiler refuses a schedule
+include with `SCHEDULE_MODULE_OWNED`. The schedule sections below are history.
+
 ## Thesis
 
 Praesidium should let an agent directory declare the runtime resources it wants:
