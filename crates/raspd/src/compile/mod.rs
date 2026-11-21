@@ -32,7 +32,6 @@ mod finalize;
 mod fs_tree;
 mod iarna;
 mod inspect;
-mod inspection_input;
 mod lock_schema;
 mod lockfile;
 mod materialize;
@@ -64,6 +63,11 @@ pub fn fwd(reason: Reason) -> Fwd {
         reason,
         detail: None,
     }
+}
+
+/// The forward for a request whose params fail validation.
+pub fn invalid_params() -> Fwd {
+    fwd(crate::reason!("invalid_params"))
 }
 
 pub fn fwd_at(reason: Reason, detail: String) -> Fwd {
@@ -121,27 +125,40 @@ pub struct Compiled {
     pub phases: Option<J>,
 }
 
+impl Compiled {
+    /// A native answer with its phases, or the forward it refused with.
+    fn from_result(result: Result<J, Fwd>, phases: Phases) -> Self {
+        match result {
+            Ok(result) => Compiled {
+                answer: Answer::Result(result),
+                fallback_detail: None,
+                phases: Some(phases.finish()),
+            },
+            Err(f) => Compiled {
+                answer: Answer::Forward(f.reason),
+                fallback_detail: f.detail,
+                phases: None,
+            },
+        }
+    }
+
+    /// An answer given before any stage ran: no phases.
+    fn unstaged(answer: Answer) -> Self {
+        Compiled {
+            answer,
+            fallback_detail: None,
+            phases: None,
+        }
+    }
+}
+
 pub fn handle(params: Option<&J>, release: &Release) -> Compiled {
     let mut phases = Phases::start();
     let Some(params) = params.filter(|p| request::params_valid(Some(*p))) else {
-        return Compiled {
-            answer: Answer::Forward(crate::reason!("invalid_params")),
-            fallback_detail: None,
-            phases: None,
-        };
+        return Compiled::unstaged(Answer::Forward(crate::reason!("invalid_params")));
     };
-    match compile(params, release, &mut phases) {
-        Ok(result) => Compiled {
-            answer: Answer::Result(result),
-            fallback_detail: None,
-            phases: Some(phases.finish()),
-        },
-        Err(f) => Compiled {
-            answer: Answer::Forward(f.reason),
-            fallback_detail: f.detail,
-            phases: None,
-        },
-    }
+    let result = compile(params, release, &mut phases);
+    Compiled::from_result(result, phases)
 }
 
 /// Wall time per compile stage, in ms to one decimal like Bun's

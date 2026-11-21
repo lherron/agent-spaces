@@ -1,6 +1,6 @@
 //! The caller-supplied inspection boundary (spaces-runtime-contracts/agent-inspection.ts).
 //! Validation is separate from evaluation; cataloging reuses the profile reader.
-use super::{Fwd, fwd};
+use crate::compile::{Fwd, fwd, invalid_params};
 use crate::json::J;
 use crate::reads::{jspath, profile};
 
@@ -47,7 +47,7 @@ fn overrides(v: Option<&J>) -> bool {
             })
     })
 }
-pub fn context(v: &J) -> bool {
+fn context(v: &J) -> bool {
     v.is_record()
         && v.get("schemaVersion") == Some(&J::str("agent-inspection-evaluation-context/v2"))
         && identity(v.get("identifiers"))
@@ -83,7 +83,7 @@ pub fn context(v: &J) -> bool {
                 })
         })
 }
-pub fn valid(params: Option<&J>, inspect: bool) -> bool {
+pub(super) fn valid(params: Option<&J>, inspect: bool) -> bool {
     params.is_some_and(|p| {
         only(
             p,
@@ -103,12 +103,12 @@ pub fn valid(params: Option<&J>, inspect: bool) -> bool {
     })
 }
 
-pub fn catalog(context: &J) -> Result<J, Fwd> {
+pub(super) fn catalog(context: &J) -> Result<J, Fwd> {
     let root = context
         .get("paths")
         .and_then(|p| p.get("agentsRoot"))
         .and_then(J::as_str)
-        .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
+        .ok_or_else(invalid_params)?;
     let mut names: Vec<String> = std::fs::read_dir(root)
         .ok()
         .into_iter()
@@ -139,9 +139,7 @@ pub fn catalog(context: &J) -> Result<J, Fwd> {
             },
             Err(_) => return Err(fwd(crate::reason!("profile_unreadable"))),
         };
-        let id = context
-            .get("identifiers")
-            .ok_or_else(|| fwd(crate::reason!("invalid_params")))?;
+        let id = context.get("identifiers").ok_or_else(invalid_params)?;
         let mut row = J::obj([
             ("agentId", J::str(&name)),
             (
@@ -187,7 +185,7 @@ pub fn catalog(context: &J) -> Result<J, Fwd> {
                             id.get(k)
                                 .cloned()
                                 .map(|v| ((*k).into(), v))
-                                .ok_or_else(|| fwd(crate::reason!("invalid_params")))
+                                .ok_or_else(invalid_params)
                         })
                         .collect::<Result<_, _>>()?,
                 ),
