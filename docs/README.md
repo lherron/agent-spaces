@@ -35,12 +35,12 @@ Read each page's status and implementation-scope notes before treating a propose
 command or lifecycle as available. Current harness behavior is described in the
 [harness architecture](harness-architecture.md) and active architecture records.
 
-- [Praesidium agent harness](proposals/agent-harness.md) — Accepted direct Pi resource-loader design, amended by the native release worker.
 - [Agent-authored runtime resources](proposals/agent-authored-runtime-resources.md) — Desired-state resource plans; distinguishes ASP compilation from ACP lifecycle intent.
 - [Agent scaffolding](proposals/agent-scaffolding.md) — Approved, unimplemented agent-creation command design.
 
 ## Historical and supporting material
 
+- Praesidium agent harness — Accepted August direct Pi resource-loader design preserved byte-for-byte as `ATT-00444` on T-07542 (rewrite the agent-harness resource-loader and TUI spec). Retrieve with `prae task attachment get ATT-00444`. The [active runtime-boundary invariant](../architecture/records/invariants/agent-spaces.agent-harness-runtime-boundary.yaml) covers the native release-worker amendment and current runtime contract.
 - aspd Rust front door — Completed P-00890 campaign plan (R0-R4: Bun race fixes, compare runner, raspd front door, native reads and compile, per-node go-live), preserved byte-for-byte as attachment `ATT-00431` on completed task T-11832 (aspd Rust front-door plan: Daedalus review). Retrieve with `wrkq attach get ATT-00431`; its forward-to-Bun and Bun-owns-semantics claims are superseded by T-13018 sole mode. Use [aspd](aspd.md) and the [active front-door invariant](../architecture/records/invariants/agent-spaces.aspd-rust-front-door.yaml).
 - Harness scenario helpers — Archived optional package design, preserved byte-for-byte as attachment `ATT-00422` on completed task T-12632 (Archived optional harness scenario helper design). Retrieve with `wrkq attach get ATT-00422`; only the standalone protocol hardening prerequisite shipped, under T-06393.
 - Producer-owned harness selection — Completed ASP v2 cutover design, preserved byte-for-byte as attachment `ATT-00425` on completed task T-08699 (Define the public v2 harness-selection contract). Retrieve with `wrkq attach get ATT-00425`; use the [compiler catalog](../compiler/agent-spaces/src/harness-selection/catalog.ts) and [public selection types](../contracts/spaces-runtime-contracts/src/harness-selection.ts) for current vocabulary and defaults.

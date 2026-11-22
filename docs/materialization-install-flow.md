@@ -19,13 +19,13 @@ against. The deterministic part of this pipeline is owned by
 
 ## Pipeline
 
-This adapter-backed pipeline applies to external-harness homes and project
-bundles. The first-party `agent-harness` runtime instead loads ordered ASP
-resources directly through `AgentSpacesResourceLoader`; it does not consume
-a compiler-built merged Pi bundle or generated external-harness home. See the
+This adapter-backed pipeline applies to project bundles, including the Pi layout
+produced by default by `asp install`. Native `agent-harness` execution takes a
+separate path. It loads ordered ASP resources directly from a validated agent
+profile through `AgentSpacesResourceLoader`. See the
 [active runtime-boundary invariant](../architecture/records/invariants/agent-spaces.agent-harness-runtime-boundary.yaml).
 The completed native release-worker design is preserved as attachment `ATT-00423`
-on T-08680; retrieve it with `wrkq attach get ATT-00423`.
+on T-08680. Retrieve it with `prae task attachment get ATT-00423`.
 
 1. **Parse manifests** — `asp-targets.toml` (or an agent's
    `agent-profile.toml` / a bare space ref / a filesystem path) and every
@@ -36,10 +36,12 @@ on T-08680; retrieve it with `wrkq attach get ATT-00423`.
 3. **Compute dependency closure and load order** — walks `deps.spaces`,
    enforcing the locality dependency-edge rules; later `compose` entries win
    collisions.
-4. **Generate/update `asp-lock.json`** — pinned closure, integrity hashes,
-   locality markers (`dev`, `project`, `agent`, or a real git sha).
-5. **Snapshot resolved space content** into a content-addressed store under
-   `ASP_HOME`.
+4. **Prepare the lock** with the resolved closure, integrity hashes, and
+   locality markers (`dev`, `project`, `agent`, or a Git commit SHA).
+5. **Populate the store and write `asp-lock.json`** — registry-backed content
+   is snapshotted under `ASP_HOME`. Filesystem-backed dev, project, and agent
+   spaces are read from their source. Install lints the resolved spaces before
+   writing the lock.
 6. **Materialize harness-specific artifacts** — `core/config/src/materializer`
    builds plugin manifests (`plugin-json.ts`), links commands/skills/agents
    (`link-components.ts`), composes hooks (`hooks-builder.ts`,
@@ -48,20 +50,24 @@ on T-08680; retrieve it with `wrkq attach get ATT-00423`.
    runs the agent-hygiene gate (`hygiene-gate.ts`).
 7. **Compose target bundles** under the fingerprinted `ASP_HOME/codex-homes/`
    scope described below — the final, harness-ready directory tree for a target.
-   `asp build` instead writes to its explicitly requested output directory.
-8. **Hand the bundle to the selected implementation** — foreground execution
-   uses the requested public harness identity (`agent-harness`, `claude`,
-   `codex`, or `muse`). Ordinary compilation resolves the implementation's
-   driver and terminal recipe only in the compiler catalog; materialization
-   never infers a route from a provider or model.
+8. **Hand the bundle to the selected implementation** — adapter-backed
+   foreground runs use the bundle to prepare the command and environment.
+   Ordinary compilation resolves the driver and terminal recipe in the
+   [compiler catalog](../compiler/agent-spaces/src/harness-selection/catalog.ts).
 
 `asp install` runs steps 1-7 without launching (materializes bundles under
-`ASP_HOME`). `asp build [target] --output <dir>` also materializes without launching;
-`--output` is required (`--no-clean`, `--no-install`, and `--no-lint` are optional).
-`asp run` runs the full pipeline and then launches. `asp diff` runs steps
-1-4 only and reports what would change without writing the lock. Always
-validate a materialization change with `asp run <target> --dry-run` (prints
-the generated harness invocation without spawning) before trusting it.
+`ASP_HOME`). `asp build [target] --output <dir>` materializes without launching.
+It uses the existing lock or auto-installs when the lock is missing. It writes
+composed settings and any MCP config to the requested output and reports the
+plugin directories in `ASP_HOME/cache`. Use `--no-install` to require an
+existing lock. `--no-clean` and `--no-lint` are also available.
+
+`asp run` prepares and launches either an adapter-backed command or the
+direct runtime for an `agent-harness` profile. For a plain project target,
+`asp run <target> --harness claude --dry-run` prepares the bundle and prints
+the invocation without spawning it. A dry run can write the lock and bundle.
+`asp diff` compares a fresh resolution with the existing lock and reports
+pending changes without writing the lock.
 
 ## Roots: `agentRoot`, `projectRoot`, `agentsRoot`
 
@@ -78,16 +84,12 @@ via three distinct roots:
   `ASP_AGENTS_ROOT` env or `agents-root` in `$ASP_HOME/config.toml`) hosts
   agent homes and shared spaces under `<agentsRoot>/spaces/`.
 
-A project can additionally declare `agents-root = "<relative-path>"` at the
-top level of its `asp-targets.toml` to layer a project-local agents root
-over the canonical one. Resolution becomes a search path conditioned on the
-placement's project — `roots(placement) = [<projectRoot>/<agents-root> (iff declared), canonicalAgentsRoot]` — and `resolveAgentRoot(agentId, placement)` returns the first root containing
-`<agentId>/agent-profile.toml`. This gives canonical-agent-to-local-agent
-delegation for free: an agent running under a project's scopes sees that
-project's local agent cohort as well as the canonical root, while the same
-agent handle resolved under a different project's scope correctly fails.
-An agent exists iff `<root>/<agentId>/agent-profile.toml` exists — there is
-no separate agent registry.
+A project can declare `agents-root = "<relative-path>"` at the top level of
+`asp-targets.toml`. [Placement resolution](../core/config/src/store/runtime-placement.ts)
+checks that project-local root first, followed by the canonical agents root,
+and takes the first `<agentId>/agent-profile.toml` it finds. A missing declared
+project-local root produces a warning. The same agent ID can resolve to a
+different profile depending on the placement's project.
 
 ## Root-relative refs
 
@@ -107,13 +109,12 @@ path — `ASP_HOME/codex-homes/<project>_<agent>/bundles/.versions/<fingerprint>
 where the fingerprint includes harness, target, materialization identity,
 lock target, per-artifact content hashes, settings, and Codex options
 (`core/config/src/orchestration/materialize-target.ts`). Adapter output lives
-beneath that version root. Without an explicit materialization identity, the
-scope uses the project-directory basename and target name. This makes bundles
-portable across different agents-root locations. Agent-local components (an agent's own `spaces/<id>/`) enter the
-bundle as a synthetic plugin keyed by `basename(agentRoot)`. Skills from all
-composed plugins (space plugins plus the agent-local synthetic plugin) must
-have globally unique names within one composed target — `discoverSkills()`
-enforces this and fails materialization on a collision.
+beneath that version root, such as `<target>/pi/` for the default install
+adapter or `<target>/claude/` for Claude. Without an explicit materialization
+identity, the scope uses the project-directory basename and target name.
+Agent-local components can enter the bundle as a synthetic plugin keyed by
+`basename(agentRoot)`. When the agent runtime materializer discovers skills
+across the composed plugins, `discoverSkills()` rejects duplicate skill names.
 
 ## Codex overlay (persona sync, not the install pipeline)
 

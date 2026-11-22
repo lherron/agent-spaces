@@ -60,7 +60,7 @@ source:
   - architecture/records/invariants/agent-spaces.producer-owned-harness-selection.yaml
   - wrkq:T-08699 attachment ATT-00425
   - wrkq:T-08680 attachment ATT-00423
-  - docs/proposals/agent-harness.md
+  - wrkq:T-07542 attachment ATT-00444
   - wrkq:T-08680 attachment ATT-00424
   - wrkq:T-08594
   - wrkq:T-08563

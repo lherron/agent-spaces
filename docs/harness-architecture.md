@@ -42,18 +42,22 @@ property-preservingly merges scalars; public contracts carry vocabulary and
 DTOs; neither can select a recipe. Builders receive the resolved recipe and
 cannot reinterpret raw selection fields.
 
-The catalog's initial recipes are:
+The [compiler catalog](../compiler/agent-spaces/src/harness-selection/catalog.ts)
+defines these driver and terminal choices.
 
 | Harness | `presentation: false` | `presentation: true` |
 | --- | --- | --- |
-| `claude` | `claude-code-tmux` | same intrinsic recipe |
-| `codex` | `codex-app-server` | same driver with Codex TUI attachment |
-| `muse` | `muse-serve` | `muse-cli-tmux` birth variant |
-| `agent-harness` | `agent-harness` native worker | `agent-harness-tmux` birth variant |
+| `agent-harness` | `agent-harness` native worker without a terminal | `agent-harness-tmux` native worker with a tmux TUI |
+| `claude` | `claude-code-tmux` with a tmux terminal | Same intrinsic presentation |
+| `claude-hrcpty` | `claude-code-hrcpty` with an HRC PTY | Same intrinsic presentation |
+| `codex` | `codex-app-server` without a terminal | Same driver with a tmux TUI attachment |
+| `codex-hrcpty` | `codex-app-server` with an HRC PTY attachment surface | Same attachable recipe |
+| `antigravity-hrcpty` | `antigravity-cli-hrcpty` with an HRC PTY | Same intrinsic presentation |
+| `muse` | `muse-serve` without a terminal | `muse-cli-tmux` with a tmux TUI |
 
-A true request must resolve to the stated fulfillment or a typed refusal; it
-is never silently downgraded. A later request may attach only where the recipe
-permits it. Birth variants require explicit lifecycle replacement.
+A true request must resolve to the stated fulfillment or a typed refusal. A
+later request may attach only where the recipe permits it. Switching a birth
+variant requires explicit lifecycle replacement.
 
 ## Configuration and compilation
 
@@ -70,15 +74,18 @@ then one recipe. Omitted provider and model use the selected catalog defaults;
 changing only harness preserves explicit provider/model and refuses an
 incompatible combination.
 
-The ordinary public RPC is solely `aspc.compileHarnessInvocation`. ASPC
-validates the v2 envelope and invokes the compiler; it has no catalog, profile
-selector, or driver selector. `compileRuntimePlan` remains an internal
-compiler/SDK operation, not another public RPC. Foreground `asp run` retains
-its separate process-preparation path, while exact-profile, participant,
-Desktop, and observer flows remain explicitly named operations.
+The ordinary public RPC is `aspc.compileHarnessInvocation`. The
+[aspd service](aspd.md) serves this v2 boundary, and the compiler resolves the
+execution recipe. The table describes selection. The serving daemon's mode
+also governs admission. For example, the Rust daemon in sole mode refuses
+`agent-harness` and `muse` compile requests with `unsupported_harness`. See the
+[front-door invariant](../architecture/records/invariants/agent-spaces.aspd-rust-front-door.yaml).
+`compileRuntimePlan` is an internal compiler/SDK operation.
+Foreground `asp run` has a separate process-preparation path. Exact-profile,
+participant, Desktop, and observer flows have their own named operations.
 
-Every ordinary success contains one `execution` and one canonical start
-request at `execution.dispatchRequest.startRequest`. The profile may reference
+Every ordinary success contains one `plan.execution` and one canonical start
+request at `plan.execution.dispatchRequest.startRequest`. The profile may reference
 that request and its hashes but never duplicates it. There is no
 `executionProfiles`, `selectedProfile`, top-level `startRequest`, or caller
 `brokerDriver` selection input.
@@ -95,10 +102,10 @@ profile / project TOML / directives / compile request
   agent-spaces compiler: catalog, resolver, selected recipe, canonical start request
                     |
                     v
-  spaces-aspc: v2 envelope validation and compiler invocation
+  aspd: serve the v2 compile result and bind the selected driver
                     |
                     v
-  aspc-facade / release worker: bind and execute the frozen driver
+  release worker: execute the frozen driver
 ```
 
 The public contract package owns vocabulary and resolved DTOs only. The
@@ -108,9 +115,8 @@ name its worker. The broker executes the frozen driver named by the canonical
 start request.
 
 HRC retains placement, authorization, terminal leases, lifecycle, messaging,
-continuation, credentials, and reattachment. It does not choose a harness,
-recipe, or worker. Migrating HRC callers and persisted state to this breaking
-v2 contract is explicitly outside this ASP-only cutover.
+continuation, credentials, and reattachment. It consumes the producer's
+resolved harness, recipe, and worker binding.
 
 ## Retained implementation layers
 
