@@ -16,10 +16,9 @@ function rejectionOf(source: string): Array<{ path: string; keyword: string }> {
 }
 
 describe('agent-profile federation policy (T-06604)', () => {
-  test('a v4 profile with claims_task and [placement.pins]/[placement.homes] parses to exactly that placement policy', () => {
+  test('a v4 profile with [placement.pins]/[placement.homes] parses to exactly that placement policy', () => {
     const profile = parseAgentProfile(`
 version = 4
-claims_task = true
 
 [placement.pins]
 "agent-spaces:T-06604" = "lab.node-1"
@@ -30,7 +29,6 @@ primary = "max3"
 minisvc = "svc_1"
 `)
 
-    expect(profile.claims_task).toBe(true)
     expect(profile.placement).toEqual({
       pins: {
         'agent-spaces:T-06604': 'lab.node-1',
@@ -91,10 +89,9 @@ minisvc = "svc_1"
     ])
   })
 
-  test('defaults claims_task to false and leaves absent placement undeclared', () => {
+  test('leaves absent placement undeclared', () => {
     const profile = parseAgentProfile('version = 4\n')
 
-    expect(profile.claims_task ?? false).toBe(false)
     expect(profile.placement).toBeUndefined()
   })
 
@@ -195,13 +192,4 @@ version = 4
       ).toThrow(ConfigValidationError)
     }
   )
-
-  test.each(['"yes"', '1', '[]'])('rejects non-boolean claims_task source %s', (rawValue) => {
-    expect(() =>
-      parseAgentProfile(`
-version = 4
-claims_task = ${rawValue}
-`)
-    ).toThrow(ConfigValidationError)
-  })
 })

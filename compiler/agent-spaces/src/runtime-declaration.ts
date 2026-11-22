@@ -341,7 +341,6 @@ async function resolveObservedRuntimeDeclaration(
       operator: profile.operator === true,
     },
     policy: {
-      claimsTask: profile.claims_task === true,
       ...(profile.provisioning?.node ? { provisioningNode: profile.provisioning.node } : {}),
       placement: {
         ...(profile.placement?.launch !== undefined ? { launch: profile.placement.launch } : {}),

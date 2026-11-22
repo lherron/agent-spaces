@@ -467,7 +467,6 @@ export type AspcResolveRuntimeDeclarationResponse =
       source: AspcRuntimeDeclarationSources
       identity: { role?: string | undefined; operator: boolean }
       policy: {
-        claimsTask: boolean
         provisioningNode?: string | undefined
         placement: {
           /**

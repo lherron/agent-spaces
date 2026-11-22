@@ -103,7 +103,6 @@ export function migrateAgentProfile(source: string, filePath = 'agent-profile.to
 
   const migrated = defined([
     ['version', 3],
-    ['claims_task', parsed['claims_task']],
     ['priming', parsed['priming_prompt']],
     ['priming_file', parsed['priming_prompt_file']],
     ['identity', nonEmpty(identity)],

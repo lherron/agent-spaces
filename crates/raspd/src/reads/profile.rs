@@ -46,7 +46,6 @@ pub struct Placement {
 #[derive(Default)]
 pub struct Profile {
     pub operator: Option<bool>,
-    pub claims_task: Option<bool>,
     pub placement: Option<Placement>,
     /// The `[provisioning]` scalars, by key.
     pub provisioning: Option<Vec<(String, J)>>,
@@ -555,7 +554,6 @@ pub fn parse(content: &str) -> R<Profile> {
         &[
             "version",
             "operator",
-            "claims_task",
             "placement",
             "provisioning",
             "identity",
@@ -575,17 +573,11 @@ pub fn parse(content: &str) -> R<Profile> {
         );
     }
     let mut profile = Profile::default();
-    for (key, slot) in [("operator", 0), ("claims_task", 1)] {
-        if let Some(v) = parsed.get(key) {
-            let J::Bool(b) = v else {
-                return fail(&format!("/{key}"), "must be a boolean");
-            };
-            if slot == 0 {
-                profile.operator = Some(*b);
-            } else {
-                profile.claims_task = Some(*b);
-            }
-        }
+    if let Some(v) = parsed.get("operator") {
+        let J::Bool(b) = v else {
+            return fail("/operator", "must be a boolean");
+        };
+        profile.operator = Some(*b);
     }
     profile.placement = placement(parsed.get("placement"), "/placement")?;
     profile.provisioning = provisioning(parsed.get("provisioning"), "/provisioning")?;

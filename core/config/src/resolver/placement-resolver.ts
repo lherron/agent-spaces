@@ -191,8 +191,7 @@ function resolvePlacementMaterialization(
 }
 
 function resolveAgentPolicy(profile: AgentRuntimeProfile): ResolvedAgentPolicy | undefined {
-  const claimsTask = profile.claims_task === true
-  if (profile.placement === undefined && profile.provisioning?.node === undefined && !claimsTask) {
+  if (profile.placement === undefined && profile.provisioning?.node === undefined) {
     return undefined
   }
   return {
@@ -207,7 +206,6 @@ function resolveAgentPolicy(profile: AgentRuntimeProfile): ResolvedAgentPolicy |
           },
         }
       : {}),
-    claimsTask,
   }
 }
 

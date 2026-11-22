@@ -118,7 +118,6 @@ export interface ResolvedAgentPolicy {
     pins: Record<string, string>
     homes: Record<string, string>
   }
-  claimsTask: boolean
 }
 
 /** Full placement resolution result including audit bundle and materialization context */

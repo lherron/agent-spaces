@@ -889,10 +889,7 @@ fn resolve_steps(request: &J, env: &Env) -> Step<Answer> {
     }
     identity.push(("operator".into(), J::Bool(profile.operator == Some(true))));
 
-    let mut policy = vec![(
-        "claimsTask".to_owned(),
-        J::Bool(profile.claims_task == Some(true)),
-    )];
+    let mut policy = vec![];
     if let Some(J::Str(node)) = profile.scalar("node")
         && !node.is_empty()
     {
