@@ -8,10 +8,11 @@ use super::materialize::parse_global_lock;
 use super::prompt::{Ctx, EnvMap, discovery, template, vars, zones};
 use super::provisioning::{self, ClaudeDefaults, CodexDefaults};
 use super::scope::{Handle, agent_session_env, handle_parts, parse_scope_ref};
+use super::selection::{self, Harness, Selection};
 use super::util::{self, hash};
 use super::{
-    Fwd, Phases, agent_tools, claude_bundle, codex, fwd, fwd_at, release_binding, request, s,
-    space_plan, spaces, stage,
+    Fwd, Phases, agent_tools, claude_bundle, codex, fwd, fwd_at, profile_target, release_binding,
+    s, space_plan, spaces, stage,
 };
 use crate::json::J;
 use crate::reads::Env;
@@ -27,7 +28,7 @@ pub(super) struct Plan {
     pub(super) agent_name: String,
     pub(super) asp_home: String,
     pub(super) cwd: String,
-    pub(super) selection: request::Selection,
+    pub(super) selection: Selection,
     pub(super) session_metadata: J,
     pub(super) metadata_diagnostics: Vec<J>,
     pub(super) resolved_bundle: J,
@@ -146,7 +147,7 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
     let agent_root = src.agent_root.clone();
 
     // launchRefusal and the taskContext check refuse before writing.
-    let profile = request::read_profile(&agent_root)?;
+    let profile = profile_target::read_profile(&agent_root)?;
     match profile
         .typed
         .placement
@@ -174,12 +175,11 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
     }
 
     // resolveCompileSources: the target comes from bundle.projectRoot.
-    let targets_for_sources =
-        request::read_targets(src.bundle_project_root.as_deref(), &src.agent_name)?;
-    let project_target = targets_for_sources.target.as_ref();
+    let target = profile_target::read_target(src.bundle_project_root.as_deref(), &src.agent_name)?;
+    let project_target = target.as_ref();
     let (session_metadata, metadata_diagnostics) =
-        request::session_metadata(&profile.raw, project_target);
-    let selection = request::resolve_selection(&src.req, &profile, project_target)?;
+        profile_target::session_metadata(&profile.raw, project_target);
+    let selection = selection::resolve_selection(&src.req, &profile, project_target)?;
     phases.lap("resolve");
 
     // resolvePlacementContext({ ...placement, dryRun: true }).
@@ -187,7 +187,7 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
     let compose = provisioning::compose(&profile.raw, src.run_mode.as_deref(), project_target);
     let claude = provisioning::claude_defaults(&profile, project_target);
     let defaults = match selection.harness {
-        request::Harness::Antigravity => {
+        Harness::Antigravity => {
             if !super::antigravity::bypass_enabled(&src.req, claude.yolo) {
                 return Err(fwd(crate::reason!(
                     "antigravity_permission_mode_unsupported"
@@ -195,12 +195,12 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
             }
             LaunchDefaults::Antigravity
         }
-        request::Harness::Claude => {
+        Harness::Claude => {
             // Placement validates Codex options for Claude compiles too.
             provisioning::codex_defaults(&profile, project_target, claude.yolo)?;
             LaunchDefaults::Claude(claude)
         }
-        request::Harness::Codex => LaunchDefaults::Codex(provisioning::codex_defaults(
+        Harness::Codex => LaunchDefaults::Codex(provisioning::codex_defaults(
             &profile,
             project_target,
             claude.yolo,
@@ -264,7 +264,7 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
         &agent_root,
         src.project_root.as_deref(),
         &registry,
-        if harness == request::Harness::Antigravity {
+        if harness == Harness::Antigravity {
             super::antigravity::HARNESS_ID
         } else {
             super::bundle_publish::DEFAULT_HARNESS
@@ -368,14 +368,12 @@ pub(super) fn classify(params: &J, release: &Release, phases: &mut Phases) -> Re
 
 /// The selected harness's binary: `findClaudeBinary()`, or the codex
 /// adapter's detection for a model in its list.
-fn detect_harness(selection: &request::Selection) -> Result<String, Fwd> {
+fn detect_harness(selection: &Selection) -> Result<String, Fwd> {
     match selection.harness {
-        request::Harness::Antigravity => {
-            super::antigravity::find_binary(super::util::exec_environment())
-                .ok_or_else(|| fwd(crate::reason!("antigravity_not_found")))
-        }
-        request::Harness::Claude => find_claude(),
-        request::Harness::Codex => {
+        Harness::Antigravity => super::antigravity::find_binary(super::util::exec_environment())
+            .ok_or_else(|| fwd(crate::reason!("antigravity_not_found"))),
+        Harness::Claude => find_claude(),
+        Harness::Codex => {
             // planPlacementRuntime throws for a model outside the adapter's list.
             if !codex::ADAPTER_MODELS.contains(&selection.model.as_str()) {
                 return Err(fwd_at(
@@ -442,7 +440,7 @@ fn find_claude() -> Result<String, Fwd> {
 /// The plan's `identity`: the scope's agent and project, else
 /// prepare-cli-runtime.ts's placement fallback (the bundle's agent name, and
 /// the first of projectRoot ?? cwd ?? bundle.projectRoot).
-fn plan_identity(placement: &J, handle: &Handle, harness: request::Harness) -> J {
+fn plan_identity(placement: &J, handle: &Handle, harness: Harness) -> J {
     let (agent_id, project_id) = match (handle.agent_id.clone(), handle.project_id.clone()) {
         (Some(agent), Some(project)) => (agent, project),
         _ => {
@@ -473,9 +471,9 @@ fn plan_identity(placement: &J, handle: &Handle, harness: request::Harness) -> J
         (
             "frontend",
             J::str(match harness {
-                request::Harness::Claude => "claude-code",
-                request::Harness::Codex => "codex-cli",
-                request::Harness::Antigravity => super::antigravity::FRONTEND,
+                Harness::Claude => "claude-code",
+                Harness::Codex => "codex-cli",
+                Harness::Antigravity => super::antigravity::FRONTEND,
             }),
         ),
     ])

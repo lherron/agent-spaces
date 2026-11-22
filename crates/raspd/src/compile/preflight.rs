@@ -5,7 +5,8 @@ use super::agent_tools::agent_var_dirs;
 use super::broker_spec::{broker_permission_policy, path_filter_scope};
 use super::emit_codex::initial_content;
 use super::plan::{Launch, Plan};
-use super::{Fwd, codex, fwd_at, request, spaces};
+use super::{Fwd, codex, fwd_at, spaces};
+use crate::json::J;
 use crate::reads::jspath::join;
 
 /// The path filter's zdotdir, the agent var dirs, and for codex the broker
@@ -37,7 +38,7 @@ pub(super) fn preflight(plan: &Plan) -> Result<(), Fwd> {
             .get("materialization")
             .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?;
         if let Some(format) = material.get("responseFormat")
-            && !request::response_format_valid(format)
+            && !response_format_valid(format)
             && !initial_content(material, plan.expanded_prompt.as_deref()).is_empty()
         {
             return Err(fwd_at(
@@ -47,6 +48,28 @@ pub(super) fn preflight(plan: &Plan) -> Result<(), Fwd> {
         }
     }
     Ok(())
+}
+
+/// schema-shapes.ts `validateResponseFormat` over a present value: `{kind:
+/// 'text'}` without a schema, or `{kind: 'json_schema', schema}` with a plain
+/// object schema of finite numbers.
+fn response_format_valid(format: &J) -> bool {
+    fn finite(v: &J) -> bool {
+        match v {
+            J::Num(n) => n.is_finite(),
+            J::Arr(items) => items.iter().all(finite),
+            J::Obj(fields) => fields.iter().all(|(_, v)| finite(v)),
+            _ => true,
+        }
+    }
+    match format.get("kind") {
+        _ if !format.is_record() => false,
+        Some(J::Str(k)) if k == "text" => format.get("schema").is_none(),
+        Some(J::Str(k)) if k == "json_schema" => format
+            .get("schema")
+            .is_some_and(|s| s.is_record() && finite(s)),
+        _ => false,
+    }
 }
 
 /// A directory `create_dir_all` can make: its nearest existing ancestor (or

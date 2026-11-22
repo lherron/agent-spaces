@@ -4,14 +4,15 @@
 use super::broker_spec::{EnvPairs, claude_driver, env_json, terminal_host};
 use super::plan::Plan;
 use super::release_binding::execution_release;
+use super::selection::{Harness, Selection};
 use super::util::{hash, now_iso};
-use super::{Fwd, request, s};
+use super::{Fwd, s};
 use crate::json::J;
 use crate::release::Release;
 
 /// `toRecipeDto(recipe)` for the selected harness variant and presentation
 /// (catalog.ts executionVariants).
-fn recipe_dto(selection: &request::Selection) -> J {
+fn recipe_dto(selection: &Selection) -> J {
     let hrcpty = selection.hrcpty;
     let host = terminal_host(hrcpty);
     let process_execution = if hrcpty {
@@ -19,7 +20,7 @@ fn recipe_dto(selection: &request::Selection) -> J {
     } else {
         "broker-process"
     };
-    if selection.harness == request::Harness::Codex {
+    if selection.harness == Harness::Codex {
         // codex-hrcpty hosts both variants on a terminal.
         let terminal = selection.interactive();
         let mut hosting = J::obj([
@@ -49,7 +50,7 @@ fn recipe_dto(selection: &request::Selection) -> J {
         return dto;
     }
     let (recipe_id, driver) = match selection.harness {
-        request::Harness::Antigravity => (super::antigravity::FRONTEND, super::antigravity::DRIVER),
+        Harness::Antigravity => (super::antigravity::FRONTEND, super::antigravity::DRIVER),
         _ => ("claude-code", claude_driver(hrcpty)),
     };
     J::obj([
@@ -102,7 +103,7 @@ pub(super) fn finalize(
     let policy = req
         .get("hrcPolicy")
         .ok_or_else(|| super::fwd(crate::reason!("invalid_params")))?;
-    let codex = plan.selection.harness == request::Harness::Codex;
+    let codex = plan.selection.harness == Harness::Codex;
     let recipe = recipe_dto(&plan.selection);
     let worker = s(recipe.get("driver")).unwrap_or_default().to_owned();
     let recipe_id = s(recipe.get("recipeId")).unwrap_or_default().to_owned();

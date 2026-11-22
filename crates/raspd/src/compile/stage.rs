@@ -5,6 +5,7 @@
 //! (`detectAgentLocalComponents`/`materializeAgentLocalComponents`).
 use super::Fwd;
 use super::fs_tree::{copy_dir, copy_dir_following, is_dir_follow, mkdirp, write};
+use super::selection::Harness;
 use super::space_plan::SpacePlan;
 use super::temp_lifecycle::unique_staging_dir;
 use super::util::sanitize_segment;
@@ -22,16 +23,11 @@ pub struct Artifact {
 }
 
 /// `materializeSpaceEntry` for a mutable space: stage it under tmp/.staging.
-pub fn stage_space(
-    plan: &SpacePlan,
-    asp_home: &str,
-    harness: super::request::Harness,
-) -> Result<Artifact, Fwd> {
+pub fn stage_space(plan: &SpacePlan, asp_home: &str, harness: Harness) -> Result<Artifact, Fwd> {
     let dir = unique_staging_dir(
         asp_home,
         &format!("space-{}", sanitize_segment(&plan.input.key)),
     );
-    use super::request::Harness;
     match harness {
         Harness::Antigravity => super::antigravity::plugins::stage_space(plan, &dir)?,
         Harness::Codex => super::codex::space::materialize_space(plan, &dir)?,

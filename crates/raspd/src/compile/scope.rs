@@ -1,9 +1,10 @@
 //! Agent scope refs (contracts/agent-scope): `parseScopeRef`,
 //! `deriveHandleParts`, `buildAgentSessionEnv`, and the lockedEnv
 //! `ASP_PROJECT` they decide.
-use super::{Fwd, fwd, request, s};
+use super::{Fwd, fwd, s};
 use crate::json::J;
 use crate::reads::jspath::{basename, resolve};
+use crate::reads::patterns::validate_token;
 
 pub(super) struct Scope {
     pub(super) agent_id: String,
@@ -14,7 +15,7 @@ pub(super) struct Scope {
 /// `parseScopeRef`, or `None` where Bun would throw.
 pub(super) fn parse_scope_ref(scope: &str) -> Option<Scope> {
     let parts: Vec<&str> = scope.split(':').collect();
-    let tok = |v: &str| request::token_error(v, "x").is_none();
+    let tok = |v: &str| validate_token(v, "x").is_none();
     if parts.len() < 2 || parts[0] != "agent" || !tok(parts[1]) {
         return None;
     }
@@ -119,7 +120,7 @@ pub(super) fn agent_session_env(placement: &J) -> Result<Vec<(String, String)>, 
         };
         if normalized != "main" {
             let lane_id = &normalized["lane:".len()..];
-            if request::token_error(lane_id, "laneId").is_some() {
+            if validate_token(lane_id, "laneId").is_some() {
                 return Err(fwd(crate::reason!("lane_ref_invalid")));
             }
         }

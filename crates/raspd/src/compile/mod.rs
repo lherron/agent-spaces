@@ -35,15 +35,18 @@ mod inspect;
 mod lock_schema;
 mod lockfile;
 mod materialize;
+mod native_shape;
+mod params;
 mod path_filter;
 mod plan;
 mod plugin_conflicts;
 mod preflight;
+mod profile_target;
 mod prompt;
 mod provisioning;
 mod release_binding;
-mod request;
 mod scope;
+mod selection;
 mod space_plan;
 mod spaces;
 mod stage;
@@ -154,7 +157,7 @@ impl Compiled {
 
 pub fn handle(params: Option<&J>, release: &Release) -> Compiled {
     let mut phases = Phases::start();
-    let Some(params) = params.filter(|p| request::params_valid(Some(*p))) else {
+    let Some(params) = params.filter(|p| params::params_valid(Some(*p))) else {
         return Compiled::unstaged(Answer::Forward(crate::reason!("invalid_params")));
     };
     let result = compile(params, release, &mut phases);
@@ -212,7 +215,7 @@ fn s(v: Option<&J>) -> Option<&str> {
 }
 
 fn compile(params: &J, release: &Release, phases: &mut Phases) -> Result<J, Fwd> {
-    request::shape_supported(params)?;
+    native_shape::shape_supported(params)?;
     phases.lap("gate");
     let plan = plan::classify(params, release, phases)?;
     preflight::preflight(&plan)?;

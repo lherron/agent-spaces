@@ -3,7 +3,7 @@
 //! read it: priming, the composed space refs, the Claude and Codex run
 //! defaults, and the codex options the fingerprint covers
 //! (`loadEffectiveCodexOptions`).
-use super::request::Profile;
+use super::profile_target::Profile;
 use super::{Fwd, fwd, fwd_at, s};
 use crate::disposition::{Context, Reason};
 use crate::json::J;
