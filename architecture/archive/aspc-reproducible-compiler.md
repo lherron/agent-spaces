@@ -1,4 +1,4 @@
-> **Design history — reviewed 2026-10-03.** Historical June 10 study and proposed roadmap, not a current gap list. Stable default input IDs now exist in `compiler/agent-spaces/src/broker-invocation.ts`; `CompileContext` and output-manifest types exist in `contracts/spaces-runtime-contracts/src/`. See [the hash epoch](../../docs/p0-hash-epoch.md) for the landed determinism contract. The phase plan and observations below retain their original date; they do not assert that every proposed release-differential command shipped.
+> **Design history — reviewed 2026-10-03.** Historical June 10 study and proposed roadmap, not a current gap list. Stable default input IDs now exist in `compiler/agent-spaces/src/broker-invocation.ts`; `CompileContext` and output-manifest types exist in `contracts/spaces-runtime-contracts/src/`. T-07309 (P0 hash epoch bump and regeneration) holds the landed determinism record as `ATT-00439`. The phase plan and observations below retain their original date; they do not assert that every proposed release-differential command shipped.
 
 # aspc as a True Compiler: Reproducibility, Output Capture, and Release Verification
 

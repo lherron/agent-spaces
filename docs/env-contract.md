@@ -13,45 +13,17 @@ service are out of scope for this contract. Examples include `ACP_JOB_FLOW_EXEC_
 
 ## Agent-Session Contract
 
-Owner/producer: agent-spaces placement/materialization.
-Writer: `core/config/src/runtime/agent-session-env.ts`, re-exported by `compiler/agent-spaces/src/agent-session-env.ts`.
-Readers: agent processes, HRC launch paths, hrcchat, hooks, wrkq/wrkf tooling.
-Format: strings; IDs are bare slugs unless noted.
-Phase: Phase 1 writes canonical names plus compatibility aliases.
+The [agent-session environment reference](identity-scope-and-env-contract.md#agent-session-environment-contract)
+lists the current writer for each managed and unmanaged launch variable. HRC
+derives managed identity and adds runtime plumbing. Unmanaged `asp agent` uses
+`buildAgentSessionEnv`. ASP compilation supplies the locked project and
+materialization environment on both paths.
 
-| Variable | Format | Legacy fallback |
-| --- | --- | --- |
-| `AGENT_SCOPE_REF` | Canonical durable scope identity, for example `agent:cody:project:agent-spaces:task:T-04218` | `ASP_SCOPE_REF` / handle-derived identity during migration |
-| `AGENT_ID` | Bare agent id, for example `cody` | `AGENTCHAT_ID` during migration |
-| `AGENT_PROJECT` | Project id, for example `agent-spaces` | `ASP_PROJECT` during migration |
-| `AGENT_TASK` | Task id when task scoped, for example `T-04218` | none |
-| `AGENT_LANE` | Bare lane id, default `main` | `AGENT_LANE_REF` during migration |
-| `AGENT_SESSION_REF` | Lane-aware session identity, `<scopeRef>/lane:<lane>` | `HRC_SESSION_REF` during migration |
-| `AGENT_RUN_ID` | Per-launch run id | `HRC_RUN_ID` during migration |
-| `AGENT_HOST_SESSION_ID` | Host session id | `HRC_HOST_SESSION_ID` during migration |
-| `AGENT_GENERATION` | Decimal generation of the authoritative host session | `HRC_GENERATION` during migration |
-| `AGENT_PROJECT_ROOT` | Absolute project root path | `ASP_PROJECT_ROOT` during migration |
-| `AGENT_ACTOR` | Bare actor slug for task writes | `WRKQ_ACTOR` is the killed legacy alias; wrkq now reads `WRKQ_PRINCIPAL_REF` |
-
-The writer also reserves/emits `HRC_RUNTIME_ID`, `HRC_INVOCATION_ID`, and
-`HRC_INITIAL_INPUT_ID` when the corresponding correlation input exists. Scope,
-lane, run, host-session, generation and project-root fields are conditional on
-placement data; they are not synthesized for every launch. `ASP_PROJECT_ROOT`
-is supplied by the shared tool/environment composition when a project root is
-present, rather than by `buildAgentSessionEnv` itself.
-
-`AGENT_SCOPE_REF` and `AGENT_SESSION_REF` are both canonical and name different
-concepts. Use `AGENT_SCOPE_REF` for durable identity and ownership logic. Use
-`AGENT_SESSION_REF` only when lane-aware session routing or correlation matters.
-
-wrkq caller attribution is principal-only (T-05381). Sessions emit
-`WRKQ_PRINCIPAL_REF=agent:<AGENT_ACTOR>` as the canonical wrkq principal env;
-the bare-slug `WRKQ_ACTOR` alias is no longer accepted by wrkq for attribution.
-
-Compatibility aliases written in Phase 1 are `WRKQ_PRINCIPAL_REF`, `AGENT_LANE_REF`,
-`ASP_PROJECT_ROOT`, `ASP_PROJECT`, `AGENTCHAT_ID`, `HRC_SESSION_REF`,
-`HRC_RUN_ID`, `HRC_HOST_SESSION_ID`, and `HRC_GENERATION`. They are not final
-contract names.
+Use `AGENT_SCOPE_REF` for durable identity and `AGENT_SESSION_REF` for
+lane-aware routing or correlation. Managed wrkq sessions derive the principal
+from `AGENT_SCOPE_REF`. The unmanaged builder supplies `WRKQ_PRINCIPAL_REF`
+when an actor is available. `ASP_PROJECT` remains a project-discovery input
+and can be present without `AGENT_PROJECT`.
 
 ## Cross-Service Contract
 
@@ -72,7 +44,7 @@ Consumer code uses the producer-owned name rather than re-prefixing it.
 | `ASP_PI_PATH` | agent-spaces | local config | Pi harness | absolute path | Phase 1 | replaces `PI_PATH` |
 | `ASP_HOME` | agent-spaces | local config | ASP/HRC tools | absolute path | current | replaces `ASP_ROOT_DIR` |
 | `ASP_AGENTS_ROOT` | agent-spaces | local config | ASP/HRC tools | absolute path | current | canonical |
-| `ASP_PROJECT` | agent-spaces | materializer | legacy tools | project id | migration only | replaced by `AGENT_PROJECT` for agent sessions |
+| `ASP_PROJECT` | ASP / HRC | ASP locked env with a project root, HRC dispatch otherwise when scope has a project | wrkq, HRC CLI | project discovery id | current | see the agent-session environment reference above |
 | `HRC_RUNTIME_DIR` | HRC | hrc config | ASP/ACP integrations | absolute path | current | canonical |
 | `HRC_STATE_DIR` | HRC | hrc config | ASP/ACP integrations | absolute path | current | canonical |
 | `ACP_STATE_DB_PATH` | ACP | ACP scripts/config | ACP tooling | absolute path | Phase 1 | replaces `ACP_STATE_DB` |

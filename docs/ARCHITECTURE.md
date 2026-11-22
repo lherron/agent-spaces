@@ -19,18 +19,14 @@ asp-targets.toml / agent-profile.toml / local spaces
   - materialize per-space artifacts / target bundles
         |
         v
-  agent-spaces compiler
+  ASP compile and preparation
   - harness catalog and selection
-  - compileRuntimePlan / frozen dispatch request
+  - driver artifacts
+  - frozen dispatch request for managed runs
         |
         v
-  injected runtime / harness hosts
-  - driver preparation and materialization
-  - aspd compile RPC / harness-broker dispatch
-        |
-        v
-  HRC (managed) or asp CLI (foreground)
-  - lifecycle and dispatch / foreground launch
+  HRC manages lifecycle and submits the frozen request to the harness broker
+  asp CLI prepares and launches foreground runs locally
 ```
 
 ## Package Boundaries
@@ -46,12 +42,14 @@ drivers/execution/          # spaces-execution: foreground execution/preparation
 drivers/harness-*/          # Claude, Codex, Muse, retained Pi implementations
 compiler/agent-spaces/      # agent-spaces: catalog and compiler client
 harness/aspc*/              # Compile service and facade
+crates/raspd/               # Rust aspd front door and native compile paths
 harness/harness-broker/     # Process host and event capture
 harness/agent-harness*/     # Native agent-harness and runtime
 apps/cli/                   # @lherron/agent-spaces: asp CLI
 ```
 
-Important correction: `git`, `resolver`, `store`, `materializer`, `lint`, and `core` are not standalone workspace packages anymore. They are sub-exports inside `spaces-config`.
+`git`, `resolver`, `store`, `materializer`, `lint`, and `core` are sub-exports of
+`spaces-config`.
 
 ### Dependency Shape
 
@@ -148,7 +146,7 @@ A space ref carries both an identity and a source locality. Four lock-entry kind
 | Kind | Ref form | Source | Lock commit marker |
 | --- | --- | --- | --- |
 | registry | `space:<id>@<selector>` | content-addressed store, resolved from git tag / dist-tag / sha | real git sha |
-| dev | `space:<id>@dev` | registry working directory | `dev` |
+| dev | `space:<id>@dev` | shared agents root's `spaces/<id>/` | `dev` |
 | project | `space:project:<id>[@dev]` | `<projectRoot>/spaces/<id>/` | `project` |
 | agent | `space:agent:<id>[@dev]` | `<agentRoot>/spaces/<id>/` | `agent` |
 
@@ -273,8 +271,7 @@ HRC is a neighboring consumer, not an ASP implementation layer.
 For ordinary v2 compilation, Agent Spaces selects the harness recipe and emits
 one frozen execution plus its one canonical dispatch start request. HRC retains
 placement, authorization, resource allocation, terminal leases, lifecycle,
-messaging, continuation, credentials, and reattachment. Migrating HRC callers,
-prepared state, or live state to v2 is outside this ASP-only cutover.
+messaging, continuation, credentials, and reattachment.
 
 The ordinary public RPC is `aspc.compileHarnessInvocation`, with
 `agent-runtime-compile-request/v2` input and one
@@ -284,11 +281,11 @@ The ordinary public RPC is `aspc.compileHarnessInvocation`, with
 
 ## Retained implementation packages
 
-These packages are retained implementation layers, not public selectable
-harness identities. The active selection vocabulary is solely
-`agent-harness`, `claude`, `claude-hrcpty`, `codex`, `codex-hrcpty`, and
-`muse`; the compiler catalog decides which retained implementation a resolved
-recipe uses. The `*-hrcpty` identities select HRC terminal hosting in managed plans.
+The following packages provide driver implementations. The
+[public selection types](../contracts/spaces-runtime-contracts/src/harness-selection.ts)
+define the selectable harnesses, including `antigravity-hrcpty`. The compiler
+catalog chooses the implementation for each resolved recipe. The `*-hrcpty`
+identities select HRC terminal hosting in managed plans.
 
 - `spaces-harness-claude`
 - `spaces-harness-codex`
@@ -309,4 +306,4 @@ selection vocabulary.
 - space authoring commands under `asp spaces`
 - placement-driven execution through `asp agent`
 
-See `docs/cli-reference.md` for the current command surface.
+See the [CLI reference](cli-reference.md) for the current command surface.

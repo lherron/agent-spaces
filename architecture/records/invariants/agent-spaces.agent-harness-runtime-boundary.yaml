@@ -67,7 +67,7 @@ source:
   - wrkq:EN-13318
   - hrcchat#21059
   - hrcchat#20779
-  - docs/proposals/agent-resource-parity-verifier.md
+  - wrkq:T-07548 attachment ATT-00443
   - harness/agent-harness-runtime/src/index.ts
   - harness/agent-harness/src/cli.ts
   - harness/agent-harness/src/broker/driver.ts

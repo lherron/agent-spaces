@@ -4,7 +4,7 @@ agent-spaces turns declarative agent configuration into a ready-to-launch agent.
 behaviour (its skills, commands, prompts, hooks, MCP servers and system prompt) is authored as
 composable *spaces*. agent-spaces resolves which spaces an agent gets and pins them. It then
 materializes them into the concrete home directory a particular harness (Claude Code, Codex,
-Muse, or the in-house agent-harness) expects, and launches that harness or hands a launch plan
+Antigravity, Muse, or the in-house agent-harness) expects, and launches that harness or hands a launch plan
 to the runtime that will. It owns *what* an agent is made of and *how* that becomes a harness
 home. It does not own *where* or *when* an agent runs; that belongs to HRC.
 
@@ -23,7 +23,7 @@ home. It does not own *where* or *when* an agent runs; that belongs to HRC.
   Each target is a composition of spaces plus priming and provisioning. A target composition
   either replaces or merges with the agent profile's composition.
 - **Harness.** The agent program that will run the result. The public vocabulary is exactly
-  `agent-harness | claude | claude-hrcpty | codex | codex-hrcpty | muse`. The
+  `agent-harness | claude | claude-hrcpty | codex | codex-hrcpty | antigravity-hrcpty | muse`. The
   `*-hrcpty` choices use HRC's PTY transport. Names like `pi`, `pi-sdk` and `codex-cli` are
   internal adapter ids, not user-facing choices.
 - **Composition / closure.** The ordered set of spaces an agent receives: roots from the profile

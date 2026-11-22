@@ -1,8 +1,9 @@
 # Codex Desktop self-join
 
 How a Codex Desktop thread gets its registered Stella address, how to read the
-trail it leaves, and what happens to mail across the switch. The design is
-`docs/proposals/codex-desktop-driver.md` §4/§6. This page covers operation.
+trail it leaves, and what happens to mail across the switch. T-08594
+(self-joining Codex Desktop broker) records the ownership ruling and holds the
+original design in attachment `ATT-00442`.
 
 ## Path
 
@@ -87,7 +88,6 @@ below describe the owner CLI's behavior and predate prae.
   its ledger routing accepts provisional addresses and wakes them for
   reply-required mail. Ordinary placement and delivery policy then apply; do
   not assume mail there can only be consumed by a waiter or poll.
-- Nothing forwards or re-addresses provisional mail (§4: earlier addresses
-  remain historical). Mail sent to the provisional address after the switch
+- Earlier addresses remain historical. Mail sent to the provisional address after the switch
   remains addressed there and can enter the injector's delivery policy.
   Address new mail to the registered scope.

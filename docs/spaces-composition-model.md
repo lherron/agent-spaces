@@ -48,7 +48,8 @@ Notable manifest sections (all optional beyond `schema`/`id`):
 - `settings.permissions.allow` / `.deny`, `settings.env`, `settings.model` —
   Claude settings applied when running with this space
 - `harness.supports` — which public harness identities the space supports:
-  `agent-harness`, `claude`, `claude-hrcpty`, `codex`, `codex-hrcpty`, and `muse`.
+  `agent-harness`, `claude`, `claude-hrcpty`, `codex`, `codex-hrcpty`,
+  `antigravity-hrcpty`, and `muse`.
   This is a closed vocabulary;
   it is not a driver or provider routing table.
 - `claude.model`, `claude.mcp` — retained Claude materialization settings
@@ -70,7 +71,7 @@ A space ref carries both an identity and a source locality
 | Kind | Ref form | Source | Lock commit marker |
 | --- | --- | --- | --- |
 | registry | `space:<id>@<selector>` | content-addressed store, resolved from git tag / dist-tag / sha | real git sha |
-| dev | `space:<id>@dev` | registry working directory | `dev` |
+| dev | `space:<id>@dev` | shared agents root's `spaces/<id>/` | `dev` |
 | project | `space:project:<id>[@dev]` | `<projectRoot>/spaces/<id>/` | `project` |
 | agent | `space:agent:<id>[@dev]` | `<agentRoot>/spaces/<id>/` | `agent` |
 
@@ -129,9 +130,9 @@ are higher precedence for collision warnings and load order), and
 `compose_mode` (`replace` or `merge`). Selection scalars live only in
 `[targets.<name>.provisioning]`: `harness`, `model_provider`, `model`,
 `reasoning_effort`, and boolean `presentation`. The harness field accepts
-exactly `agent-harness`, `claude`, `claude-hrcpty`, `codex`, `codex-hrcpty`,
-or `muse`; omission defaults through
-the compiler catalog to `agent-harness`. Omitted `presentation` defaults to
+exactly the public identities listed under [Anatomy of a space](#anatomy-of-a-space).
+The compiler catalog defaults an omitted harness to `agent-harness`.
+Omitted `presentation` defaults to
 `true`, while an explicit `presentation = false` remains explicit through
 every merge. Provider/model compatibility and every execution recipe remain
 compiler decisions, never TOML routing.
@@ -144,9 +145,11 @@ the independent `space.toml` content-manifest schema above remains `schema = 1`.
 the canonical one (see `agent-spaces/materialization-install-flow`).
 
 Per-agent targets exist in this repo's own `asp-targets.toml`. This standalone
-example adds explicit provider/model and presentation settings:
+example adds explicit harness, provider, and presentation settings:
 
 ```toml
+schema = 2
+
 [targets.smokey]
 description = "Smokey for agent-spaces"
 compose = ["space:smokey@dev", "space:defaults@dev"]
@@ -154,13 +157,11 @@ priming_append = """
 
 ## Project: agent-spaces
 - Uses Bun workspace, TypeScript. Run `just verify` before accepting changes.
-- This project uses red/green TDD.
 """
 
 [targets.smokey.provisioning]
 harness = "codex"
 model_provider = "openai-codex"
-model = "gpt-5.6-terra"
 reasoning_effort = "high"
 presentation = false
 ```
