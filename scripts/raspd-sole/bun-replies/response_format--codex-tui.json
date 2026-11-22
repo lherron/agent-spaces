@@ -125,9 +125,9 @@
           ]
         },
         "release": {
-          "releaseId": "asp-8fe3dcbe415d-20261110T141042Z-8cb506",
-          "sourceCommit": "8fe3dcbe415db69d78a72683997f9f2b2531c543",
-          "builtAt": "2026-11-10T14:10:42.977Z"
+          "releaseId": "asp-574b83013cf8-20261122T202611Z-053e86",
+          "sourceCommit": "574b83013cf8ab7006f7e5afdd131c38d27d0873",
+          "builtAt": "2026-11-22T20:26:11.826Z"
         }
       }
     },
@@ -144,7 +144,7 @@
             "version": "0.1.1"
           },
           "compileId": "compile_064e2e2a7e9a426edb6ef977325ffac0",
-          "createdAt": "2026-11-10T14:11:15.589Z",
+          "createdAt": "2026-11-22T20:26:33.763Z",
           "agent": {
             "id": "pathmark-dev"
           },
@@ -383,15 +383,15 @@
         },
         "sessionMetadata": {},
         "diagnostics": [],
-        "effectiveEnvironmentHash": "47bec26fec09b2fa2a3bf31e9d94c8ae795173570872b4dd9d75a03389b4d288",
+        "effectiveEnvironmentHash": "aa8ae128cd6330aea5fa3f9334559bec0762be00d10eaec5f62c9e559802f4da",
         "executionRelease": {
-          "releaseId": "asp-8fe3dcbe415d-20261110T141042Z-8cb506",
-          "sourceCommit": "8fe3dcbe415db69d78a72683997f9f2b2531c543",
-          "builtAt": "2026-11-10T14:10:42.977Z",
-          "releaseRoot": "/private/tmp/raspd-sole-native/releases/asp-8fe3dcbe415d-20261110T141042Z-8cb506",
+          "releaseId": "asp-574b83013cf8-20261122T202611Z-053e86",
+          "sourceCommit": "574b83013cf8ab7006f7e5afdd131c38d27d0873",
+          "builtAt": "2026-11-22T20:26:11.826Z",
+          "releaseRoot": "/private/tmp/raspd-sole-native/releases/asp-574b83013cf8-20261122T202611Z-053e86",
           "worker": {
             "protocol": "harness-broker/0.2",
-            "executable": "/private/tmp/raspd-sole-native/releases/asp-8fe3dcbe415d-20261110T141042Z-8cb506/harness-broker",
+            "executable": "/private/tmp/raspd-sole-native/releases/asp-574b83013cf8-20261122T202611Z-053e86/harness-broker",
             "hostedDrivers": [
               "claude-code-hrcpty",
               "claude-code-tmux",

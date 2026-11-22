@@ -65,9 +65,9 @@
           ]
         },
         "release": {
-          "releaseId": "asp-8fe3dcbe415d-20261110T141042Z-8cb506",
-          "sourceCommit": "8fe3dcbe415db69d78a72683997f9f2b2531c543",
-          "builtAt": "2026-11-10T14:10:42.977Z"
+          "releaseId": "asp-574b83013cf8-20261122T202611Z-053e86",
+          "sourceCommit": "574b83013cf8ab7006f7e5afdd131c38d27d0873",
+          "builtAt": "2026-11-22T20:26:11.826Z"
         }
       }
     },
@@ -80,7 +80,7 @@
         "declaration": {
           "schemaVersion": "aspc-resolve-runtime-declaration-response/v1",
           "ok": true,
-          "evaluatedAt": "2026-11-10T14:11:11.769Z",
+          "evaluatedAt": "2026-11-22T20:26:29.608Z",
           "contextHash": "cdc0afd0991adf70ba86331ec7dd9777ccd55aab6289cba29fb062863c72858c",
           "agentSources": {
             "aspHome": "/private/tmp/raspd-sole-native/stage/asp-home",
@@ -112,7 +112,6 @@
             "operator": false
           },
           "policy": {
-            "claimsTask": false,
             "placement": {
               "pins": {},
               "homes": {}
@@ -331,7 +330,7 @@
             },
             {
               "kind": "execution-profile",
-              "partId": "execution-profile:profile_326d0cb415d60df1e291a57a7cc7f11e",
+              "partId": "execution-profile:profile_9d145152af4a3969371617347c6bd601",
               "disposition": {
                 "kind": "effective"
               },
@@ -345,7 +344,7 @@
                 ]
               },
               "value": {
-                "profileId": "profile_326d0cb415d60df1e291a57a7cc7f11e",
+                "profileId": "profile_9d145152af4a3969371617347c6bd601",
                 "controllerKind": "claude-code-tmux",
                 "configuration": {
                   "recipeId": "claude-code"
@@ -380,7 +379,7 @@
             "nearMaxChars": false
           }
         },
-        "effectiveEnvironmentHash": "9b1832bdd8b1852683b2675b69baef593bc3b7def2b37de13c4eccc629b6330c"
+        "effectiveEnvironmentHash": "a6e029fa22d619df10d5c9cbff4fa48a343b7aca18d2042cb258eeed72c54416"
       }
     }
   ],

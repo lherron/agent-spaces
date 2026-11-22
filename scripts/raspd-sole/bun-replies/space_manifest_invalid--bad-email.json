@@ -110,9 +110,9 @@
           ]
         },
         "release": {
-          "releaseId": "asp-8fe3dcbe415d-20261110T141042Z-8cb506",
-          "sourceCommit": "8fe3dcbe415db69d78a72683997f9f2b2531c543",
-          "builtAt": "2026-11-10T14:10:42.977Z"
+          "releaseId": "asp-574b83013cf8-20261122T202611Z-053e86",
+          "sourceCommit": "574b83013cf8ab7006f7e5afdd131c38d27d0873",
+          "builtAt": "2026-11-22T20:26:11.826Z"
         }
       }
     },
@@ -130,7 +130,7 @@
             "plane": "asp-compiler",
             "details": {
               "name": "ConfigParseError",
-              "stack": "ConfigParseError: Invalid space manifest /private/tmp/raspd-sole-native/stage/agents/spaces/p-smi-email/space.toml: /plugin/author/email: must match format \"email\"\n    at readSpaceManifestFromFilesystem (/$bunfs/root/aspd.js:16744:33)\n    at processTicksAndRejections (native:7:39)"
+              "stack": "ConfigParseError: Invalid space manifest /private/tmp/raspd-sole-native/stage/agents/spaces/p-smi-email/space.toml: /plugin/author/email: must match format \"email\"\n    at readSpaceManifestFromFilesystem (/$bunfs/root/aspd.js:16691:33)\n    at processTicksAndRejections (native:7:39)"
             }
           }
         ]
