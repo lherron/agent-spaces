@@ -11,11 +11,13 @@ import { getDependents, getSpace, isRoot } from './closure.js'
  * - Load-order iteration
  */
 
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
+import { type Mock, afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
 import {
+  type CommitSha,
   CyclicDependencyError,
   MissingDependencyError,
   type SpaceManifest,
+  type SpaceRefString,
   asCommitSha,
   asSpaceId,
   asSpaceKey,
@@ -109,8 +111,8 @@ describe('closure helper functions', () => {
 
 describe('computeClosure', () => {
   // Mock functions
-  let resolverSelectorSpy: ReturnType<typeof spyOn>
-  let readManifestSpy: ReturnType<typeof spyOn>
+  let resolverSelectorSpy: Mock<typeof selectorModule.resolveSelector>
+  let readManifestSpy: Mock<typeof manifestModule.readSpaceManifest>
 
   beforeEach(() => {
     // Setup mocks before each test
@@ -124,21 +126,21 @@ describe('computeClosure', () => {
   })
 
   it('should compute closure for single space with no dependencies', async () => {
-    const commit = 'abc123abc123abc123abc123abc123abc123abc1'
+    const commit = asCommitSha('abc123abc123abc123abc123abc123abc123abc1')
     const manifest: SpaceManifest = {
       schema: 1,
-      id: 'my-space' as any,
+      id: asSpaceId('my-space'),
       version: '1.0.0',
     }
 
     resolverSelectorSpy.mockResolvedValue({
-      commit: commit as any,
+      commit,
       selector: { kind: 'dist-tag', tag: 'stable' },
     })
 
     readManifestSpy.mockResolvedValue(manifest)
 
-    const result = await computeClosure(['space:my-space@stable' as any], { cwd: '/tmp' })
+    const result = await computeClosure(['space:my-space@stable'], { cwd: '/tmp' })
 
     expect(result.loadOrder).toHaveLength(1)
     expect(result.roots).toHaveLength(1)
@@ -153,43 +155,45 @@ describe('computeClosure', () => {
     // A depends on B, B depends on C
     // Load order should be: C, B, A
 
-    const commitA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1'
-    const commitB = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2'
-    const commitC = 'ccccccccccccccccccccccccccccccccccccccc3'
+    const commitA = asCommitSha('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1')
+    const commitB = asCommitSha('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2')
+    const commitC = asCommitSha('ccccccccccccccccccccccccccccccccccccccc3')
 
     const manifestA: SpaceManifest = {
       schema: 1,
-      id: 'space-a' as any,
+      id: asSpaceId('space-a'),
       version: '1.0.0',
-      deps: { spaces: ['space:space-b@stable' as any] },
+      deps: { spaces: ['space:space-b@stable'] },
     }
 
     const manifestB: SpaceManifest = {
       schema: 1,
-      id: 'space-b' as any,
+      id: asSpaceId('space-b'),
       version: '1.0.0',
-      deps: { spaces: ['space:space-c@stable' as any] },
+      deps: { spaces: ['space:space-c@stable'] },
     }
 
     const manifestC: SpaceManifest = {
       schema: 1,
-      id: 'space-c' as any,
+      id: asSpaceId('space-c'),
       version: '1.0.0',
     }
 
-    resolverSelectorSpy.mockImplementation(async (id: string) => {
-      const commits: Record<string, string> = {
+    resolverSelectorSpy.mockImplementation(async (id) => {
+      const commits: Record<string, CommitSha> = {
         'space-a': commitA,
         'space-b': commitB,
         'space-c': commitC,
       }
+      const commit = commits[id]
+      if (commit === undefined) throw new Error(`No fixture commit for ${id}`)
       return {
-        commit: commits[id] as any,
+        commit,
         selector: { kind: 'dist-tag', tag: 'stable' },
       }
     })
 
-    readManifestSpy.mockImplementation(async (id: string) => {
+    readManifestSpy.mockImplementation(async (id) => {
       const manifests: Record<string, SpaceManifest> = {
         'space-a': manifestA,
         'space-b': manifestB,
@@ -198,7 +202,7 @@ describe('computeClosure', () => {
       return manifests[id]!
     })
 
-    const result = await computeClosure(['space:space-a@stable' as any], { cwd: '/tmp' })
+    const result = await computeClosure(['space:space-a@stable'], { cwd: '/tmp' })
 
     expect(result.loadOrder).toHaveLength(3)
     expect(result.spaces.size).toBe(3)
@@ -213,43 +217,45 @@ describe('computeClosure', () => {
     // Root: [A, B]
     // Load order should be: C, A, B (or C, B, A based on root order)
 
-    const commitA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1'
-    const commitB = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2'
-    const commitC = 'ccccccccccccccccccccccccccccccccccccccc3'
+    const commitA = asCommitSha('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1')
+    const commitB = asCommitSha('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2')
+    const commitC = asCommitSha('ccccccccccccccccccccccccccccccccccccccc3')
 
     const manifestA: SpaceManifest = {
       schema: 1,
-      id: 'space-a' as any,
+      id: asSpaceId('space-a'),
       version: '1.0.0',
-      deps: { spaces: ['space:space-c@stable' as any] },
+      deps: { spaces: ['space:space-c@stable'] },
     }
 
     const manifestB: SpaceManifest = {
       schema: 1,
-      id: 'space-b' as any,
+      id: asSpaceId('space-b'),
       version: '1.0.0',
-      deps: { spaces: ['space:space-c@stable' as any] },
+      deps: { spaces: ['space:space-c@stable'] },
     }
 
     const manifestC: SpaceManifest = {
       schema: 1,
-      id: 'space-c' as any,
+      id: asSpaceId('space-c'),
       version: '1.0.0',
     }
 
-    resolverSelectorSpy.mockImplementation(async (id: string) => {
-      const commits: Record<string, string> = {
+    resolverSelectorSpy.mockImplementation(async (id) => {
+      const commits: Record<string, CommitSha> = {
         'space-a': commitA,
         'space-b': commitB,
         'space-c': commitC,
       }
+      const commit = commits[id]
+      if (commit === undefined) throw new Error(`No fixture commit for ${id}`)
       return {
-        commit: commits[id] as any,
+        commit,
         selector: { kind: 'dist-tag', tag: 'stable' },
       }
     })
 
-    readManifestSpy.mockImplementation(async (id: string) => {
+    readManifestSpy.mockImplementation(async (id) => {
       const manifests: Record<string, SpaceManifest> = {
         'space-a': manifestA,
         'space-b': manifestB,
@@ -258,10 +264,9 @@ describe('computeClosure', () => {
       return manifests[id]!
     })
 
-    const result = await computeClosure(
-      ['space:space-a@stable' as any, 'space:space-b@stable' as any],
-      { cwd: '/tmp' }
-    )
+    const result = await computeClosure(['space:space-a@stable', 'space:space-b@stable'], {
+      cwd: '/tmp',
+    })
 
     // C should appear only once in load order
     expect(result.loadOrder).toHaveLength(3)
@@ -281,44 +286,44 @@ describe('computeClosure', () => {
   ])(
     'a space dependency cycle fails resolution with CyclicDependencyError: %s',
     async (_case, graph) => {
-      resolverSelectorSpy.mockImplementation(async (id: string) => ({
-        commit: `${id.slice(-1)}`.repeat(40) as any,
+      resolverSelectorSpy.mockImplementation(async (id) => ({
+        commit: asCommitSha(id.slice(-1).repeat(40)),
         selector: { kind: 'dist-tag', tag: 'stable' },
       }))
 
       readManifestSpy.mockImplementation(
-        async (id: string): Promise<SpaceManifest> => ({
+        async (id): Promise<SpaceManifest> => ({
           schema: 1,
-          id: id as any,
+          id,
           version: '1.0.0',
-          deps: { spaces: (graph[id] ?? []).map((dep) => `space:${dep}@stable` as any) },
+          deps: { spaces: (graph[id] ?? []).map<SpaceRefString>((dep) => `space:${dep}@stable`) },
         })
       )
 
-      await expect(
-        computeClosure(['space:space-a@stable' as any], { cwd: '/tmp' })
-      ).rejects.toThrow(CyclicDependencyError)
+      await expect(computeClosure(['space:space-a@stable'], { cwd: '/tmp' })).rejects.toThrow(
+        CyclicDependencyError
+      )
     }
   )
 
   it('should preserve the underlying error as cause when wrapping (A7)', async () => {
-    const commitA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1'
+    const commitA = asCommitSha('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1')
 
     const manifestA: SpaceManifest = {
       schema: 1,
-      id: 'space-a' as any,
+      id: asSpaceId('space-a'),
       version: '1.0.0',
-      deps: { spaces: ['space:bad-dep@stable' as any] },
+      deps: { spaces: ['space:bad-dep@stable'] },
     }
 
     const deepError = new Error('boom: bad manifest TOML several levels deep')
 
-    resolverSelectorSpy.mockImplementation(async (id: string) => {
+    resolverSelectorSpy.mockImplementation(async (id) => {
       if (id === 'bad-dep') {
         throw deepError
       }
       return {
-        commit: commitA as any,
+        commit: commitA,
         selector: { kind: 'dist-tag', tag: 'stable' },
       }
     })
@@ -327,7 +332,7 @@ describe('computeClosure', () => {
 
     let caught: unknown
     try {
-      await computeClosure(['space:space-a@stable' as any], { cwd: '/tmp' })
+      await computeClosure(['space:space-a@stable'], { cwd: '/tmp' })
     } catch (err) {
       caught = err
     }
@@ -338,10 +343,10 @@ describe('computeClosure', () => {
   })
 
   it('should use pinned spaces when provided', async () => {
-    const pinnedCommit = 'abcdef1111111111111111111111111111111111'
+    const pinnedCommit = asCommitSha('abcdef1111111111111111111111111111111111')
     const manifestA: SpaceManifest = {
       schema: 1,
-      id: 'space-a' as any,
+      id: asSpaceId('space-a'),
       version: '1.0.0',
     }
 
@@ -350,9 +355,9 @@ describe('computeClosure', () => {
 
     readManifestSpy.mockResolvedValue(manifestA)
 
-    const result = await computeClosure(['space:space-a@stable' as any], {
+    const result = await computeClosure(['space:space-a@stable'], {
       cwd: '/tmp',
-      pinnedSpaces: new Map([['space-a' as any, pinnedCommit as any]]),
+      pinnedSpaces: new Map([[asSpaceId('space-a'), pinnedCommit]]),
     })
 
     expect(result.loadOrder).toHaveLength(1)
@@ -361,33 +366,35 @@ describe('computeClosure', () => {
   })
 
   it('should handle multiple roots in declared order', async () => {
-    const commitA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1'
-    const commitB = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2'
+    const commitA = asCommitSha('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa1')
+    const commitB = asCommitSha('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb2')
 
     const manifestA: SpaceManifest = {
       schema: 1,
-      id: 'space-a' as any,
+      id: asSpaceId('space-a'),
       version: '1.0.0',
     }
 
     const manifestB: SpaceManifest = {
       schema: 1,
-      id: 'space-b' as any,
+      id: asSpaceId('space-b'),
       version: '1.0.0',
     }
 
-    resolverSelectorSpy.mockImplementation(async (id: string) => {
-      const commits: Record<string, string> = {
+    resolverSelectorSpy.mockImplementation(async (id) => {
+      const commits: Record<string, CommitSha> = {
         'space-a': commitA,
         'space-b': commitB,
       }
+      const commit = commits[id]
+      if (commit === undefined) throw new Error(`No fixture commit for ${id}`)
       return {
-        commit: commits[id] as any,
+        commit,
         selector: { kind: 'dist-tag', tag: 'stable' },
       }
     })
 
-    readManifestSpy.mockImplementation(async (id: string) => {
+    readManifestSpy.mockImplementation(async (id) => {
       const manifests: Record<string, SpaceManifest> = {
         'space-a': manifestA,
         'space-b': manifestB,
@@ -395,10 +402,9 @@ describe('computeClosure', () => {
       return manifests[id]!
     })
 
-    const result = await computeClosure(
-      ['space:space-a@stable' as any, 'space:space-b@stable' as any],
-      { cwd: '/tmp' }
-    )
+    const result = await computeClosure(['space:space-a@stable', 'space:space-b@stable'], {
+      cwd: '/tmp',
+    })
 
     expect(result.loadOrder).toHaveLength(2)
     expect(result.roots).toHaveLength(2)
