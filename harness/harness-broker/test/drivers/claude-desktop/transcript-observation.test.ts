@@ -212,72 +212,101 @@ describe('claude-desktop transcript observation', () => {
     await broker.stop({ invocationId: 'inv-first-join' as never, reason: 'test' })
   })
 
-  test('broker restart neither replays nor skips a turn, including one open across the restart', async () => {
-    const home = claudeHome()
-    const captureDir = join(home.home, 'hrc-desktop', 'state')
-    mkdirSync(captureDir, { recursive: true })
-    const ledgerPath = join(captureDir, 'event-ledger.ndjson')
-    const invocationId = 'inv-restart'
-    home.write('')
+  // HRC mints a new invocation for each broker life (observed live on max3,
+  // 2026-11-23); a same-invocation restart is the in-broker reattach path.
+  test.each([
+    ['a new invocation', 'inv-restart-2', 'resume-cursor'],
+    ['the same invocation', 'inv-restart', 'resume'],
+  ])(
+    'broker restart under %s neither replays nor skips a turn, including one open across it',
+    async (_label, secondInvocationId, expectedMode) => {
+      const home = claudeHome()
+      const captureDir = join(home.home, 'hrc-desktop', 'state')
+      mkdirSync(captureDir, { recursive: true })
+      const ledgerPath = join(captureDir, 'event-ledger.ndjson')
+      const invocationId = 'inv-restart'
+      home.write('')
 
-    const firstLedger = createEventLedger({ path: ledgerPath })
-    const first = desktopBroker({ claudeHome: home.home, captureDir, eventLedger: firstLedger })
-    await first.broker.start({ spec: desktopSpec(invocationId) })
-    home.append(typedTurn('r1', 'first', 'one'))
-    // r2 opens and calls a tool, then the broker goes away mid-turn.
-    home.append(
-      enqueue('second') +
-        dequeue() +
-        humanPrompt('r2', 'second') +
-        assistantToolUse('msg-r2-1', 'tool-r2')
-    )
-    await waitFor(
-      () =>
-        completed(first.events, 'turn_r1') &&
-        ofType(first.events, 'tool.call.started', 'turn_r2').length === 1
-    )
-    await first.broker.stop({ invocationId: invocationId as never, reason: 'observer restart' })
-    firstLedger.close()
+      const firstLedger = createEventLedger({ path: ledgerPath })
+      const first = desktopBroker({ claudeHome: home.home, captureDir, eventLedger: firstLedger })
+      await first.broker.start({ spec: desktopSpec(invocationId) })
+      home.append(typedTurn('r1', 'first', 'one'))
+      // r2 opens and calls a tool, then the broker goes away mid-turn.
+      home.append(
+        enqueue('second') +
+          dequeue() +
+          humanPrompt('r2', 'second') +
+          assistantToolUse('msg-r2-1', 'tool-r2')
+      )
+      await waitFor(
+        () =>
+          completed(first.events, 'turn_r1') &&
+          ofType(first.events, 'tool.call.started', 'turn_r2').length === 1
+      )
+      await first.broker.stop({ invocationId: invocationId as never, reason: 'observer restart' })
+      firstLedger.close()
 
-    // While no broker runs, r2 finishes and r3 runs start to finish.
-    home.append(
-      toolResult('tool-r2', 'ok') + assistantText('msg-r2-2', 'two') + stopHookSummary('r2')
-    )
-    home.append(typedTurn('r3', 'third', 'three'))
+      // While no broker runs, r2 finishes and r3 runs start to finish.
+      home.append(
+        toolResult('tool-r2', 'ok') + assistantText('msg-r2-2', 'two') + stopHookSummary('r2')
+      )
+      home.append(typedTurn('r3', 'third', 'three'))
 
-    const secondLedger = createEventLedger({ path: ledgerPath })
-    const second = desktopBroker({ claudeHome: home.home, captureDir, eventLedger: secondLedger })
-    await second.broker.start({ spec: desktopSpec(invocationId) })
-    await waitFor(() => completed(second.events, 'turn_r3'))
+      const secondLedger = createEventLedger({ path: ledgerPath })
+      const second = desktopBroker({ claudeHome: home.home, captureDir, eventLedger: secondLedger })
+      await second.broker.start({ spec: desktopSpec(secondInvocationId) })
+      await waitFor(() => completed(second.events, 'turn_r3'))
 
-    const both = [...first.events, ...second.events]
-    for (const turnId of ['turn_r1', 'turn_r2', 'turn_r3']) {
-      expect(ofType(both, 'turn.started', turnId)).toHaveLength(1)
-      expect(ofType(both, 'turn.completed', turnId)).toHaveLength(1)
-      expect(ofType(both, 'tool.call.started', turnId)).toHaveLength(1)
-      expect(ofType(both, 'tool.call.completed', turnId)).toHaveLength(1)
-      expect(
-        ofType(both, 'assistant.message.completed', turnId).filter(
-          (event) => (event.payload as { final?: boolean }).final
-        )
-      ).toHaveLength(1)
+      const both = [...first.events, ...second.events]
+      for (const turnId of ['turn_r1', 'turn_r2', 'turn_r3']) {
+        expect(ofType(both, 'turn.started', turnId)).toHaveLength(1)
+        expect(ofType(both, 'turn.completed', turnId)).toHaveLength(1)
+        expect(ofType(both, 'tool.call.started', turnId)).toHaveLength(1)
+        expect(ofType(both, 'tool.call.completed', turnId)).toHaveLength(1)
+        expect(
+          ofType(both, 'assistant.message.completed', turnId).filter(
+            (event) => (event.payload as { final?: boolean }).final
+          )
+        ).toHaveLength(1)
+      }
+      // The second broker carried the open turn to its end without reopening it.
+      expect(ofType(second.events, 'turn.started').map((event) => String(event.turnId))).toEqual([
+        'turn_r3',
+      ])
+      expect(ofType(second.events, 'turn.completed').map((event) => String(event.turnId))).toEqual([
+        'turn_r2',
+        'turn_r3',
+      ])
+      const attach = ofType(second.events, 'driver.notice').find(
+        (event) =>
+          event.type === 'driver.notice' &&
+          event.payload.code === 'CLAUDE_DESKTOP_TRANSCRIPT_ATTACHED'
+      )
+      expect(attach?.payload).toMatchObject({ data: { mode: expectedMode } })
+      await second.broker.stop({ invocationId: secondInvocationId as never, reason: 'test' })
+      secondLedger.close()
     }
-    // The second broker carried the open turn to its end without reopening it.
-    expect(ofType(second.events, 'turn.started').map((event) => String(event.turnId))).toEqual([
-      'turn_r3',
-    ])
-    expect(ofType(second.events, 'turn.completed').map((event) => String(event.turnId))).toEqual([
-      'turn_r2',
-      'turn_r3',
-    ])
-    const attach = ofType(second.events, 'driver.notice').find(
-      (event) =>
-        event.type === 'driver.notice' &&
-        event.payload.code === 'CLAUDE_DESKTOP_TRANSCRIPT_ATTACHED'
-    )
-    expect(attach?.payload).toMatchObject({ data: { mode: 'resume' } })
-    await second.broker.stop({ invocationId: invocationId as never, reason: 'test' })
-    secondLedger.close()
+  )
+
+  test('a turn that runs entirely while no broker serves is still published', async () => {
+    const home = claudeHome()
+    const captureDir = join(home.home, 'state')
+    mkdirSync(captureDir, { recursive: true })
+    home.write(typedTurn('d0', 'history', 'old'))
+    const first = desktopBroker({ claudeHome: home.home, captureDir })
+    await first.broker.start({ spec: desktopSpec('inv-down-1') })
+    await waitFor(() => ofType(first.events, 'driver.notice').length > 0)
+    await first.broker.stop({ invocationId: 'inv-down-1' as never, reason: 'gone' })
+    home.append(typedTurn('d1', 'while down', 'answered'))
+    const second = desktopBroker({ claudeHome: home.home, captureDir })
+    await second.broker.start({ spec: desktopSpec('inv-down-2') })
+    await waitFor(() => completed(second.events, 'turn_d1'))
+    expect(
+      ofType([...first.events, ...second.events], 'turn.started').map((event) =>
+        String(event.turnId)
+      )
+    ).toEqual(['turn_d1'])
+    await second.broker.stop({ invocationId: 'inv-down-2' as never, reason: 'test' })
   })
 
   test('a hook hint is acknowledged, journaled, and only wakes a read', async () => {

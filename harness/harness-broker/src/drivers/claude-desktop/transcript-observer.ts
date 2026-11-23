@@ -63,6 +63,8 @@ export interface ClaudeDesktopObserver {
 export function createClaudeDesktopObserver(options: {
   ctx: DriverContext
   now: () => Date
+  /** A row at or past the boundary was published; `nextByte` is just past its newline. */
+  onRowPublished?: ((nextByte: number) => void) | undefined
 }): ClaudeDesktopObserver {
   const { ctx, now } = options
   const invocationId = ctx.invocationId
@@ -341,16 +343,17 @@ export function createClaudeDesktopObserver(options: {
     if (offset >= plan.liveFromByte) {
       if (ctx.capture !== undefined) {
         ctx.capture.ingest(relabeled, run)
-        return
+      } else {
+        const outcome = run(uncommitted(relabeled))
+        if (outcome.disposition === 'blocked-unknown') {
+          emit(
+            'capture.warning',
+            { message: outcome.message, raw: line },
+            { driver: desktopDriver('transcript') }
+          )
+        }
       }
-      const outcome = run(uncommitted(relabeled))
-      if (outcome.disposition === 'blocked-unknown') {
-        emit(
-          'capture.warning',
-          { message: outcome.message, raw: line },
-          { driver: desktopDriver('transcript') }
-        )
-      }
+      options.onRowPublished?.(offset + input.rawBytes.length + 1)
       return
     }
     const journaled = plan.journaled.get(offset)

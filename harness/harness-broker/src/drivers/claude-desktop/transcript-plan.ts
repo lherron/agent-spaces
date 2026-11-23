@@ -1,4 +1,13 @@
-import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  renameSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 import type { RawProviderRecord } from 'spaces-harness-broker-protocol'
 import type { CaptureGate } from '../../capture/capture-gate'
@@ -15,7 +24,7 @@ export const CLAUDE_DESKTOP_DRIVER_VERSION = '0.2.0'
  * only move that state; rows at or past it are committed and published.
  */
 export interface ClaudeDesktopReplayPlan {
-  mode: 'first-join' | 'resume'
+  mode: 'first-join' | 'resume' | 'resume-cursor'
   liveFromByte: number
   /**
    * Rows the previous broker committed but never dispositioned (it died
@@ -127,13 +136,66 @@ export function firstJoinBoundary(path: string): number {
 }
 
 /**
- * Restart: resume just past the last transcript row this invocation journaled,
- * if the file still holds exactly those bytes there. Otherwise the transcript
- * was replaced, and this is a first join of the new file.
+ * Where the last broker for this session stopped publishing, kept beside the
+ * session's ledger. HRC mints a new invocation for every broker life, and the
+ * capture journal is per invocation, so this is what carries the boundary
+ * from one broker to the next.
+ */
+export interface ClaudeDesktopCursor {
+  v: 1
+  transcriptPath: string
+  /** The next unread byte: just past the last published row's newline. */
+  byteOffset: number
+  /** Base64 of up to 64 bytes ending at `byteOffset`, to detect a replaced file. */
+  anchor: string
+}
+
+const CURSOR_FILE = 'claude-desktop-cursor.json'
+const ANCHOR_BYTES = 64
+
+export function readClaudeDesktopCursor(stateDir: string): ClaudeDesktopCursor | undefined {
+  const parsed = parseRow(safeRead(join(stateDir, CURSOR_FILE)) ?? '')
+  if (
+    parsed?.['v'] !== 1 ||
+    typeof parsed['transcriptPath'] !== 'string' ||
+    typeof parsed['byteOffset'] !== 'number' ||
+    typeof parsed['anchor'] !== 'string'
+  ) {
+    return undefined
+  }
+  return parsed as unknown as ClaudeDesktopCursor
+}
+
+/** Record the boundary after a published row; tmp + rename so a crash leaves the old one. */
+export function writeClaudeDesktopCursor(
+  stateDir: string,
+  transcriptPath: string,
+  byteOffset: number
+): void {
+  const anchor = bytesBefore(transcriptPath, byteOffset)
+  if (anchor === undefined) return
+  const cursor: ClaudeDesktopCursor = {
+    v: 1,
+    transcriptPath,
+    byteOffset,
+    anchor: anchor.toString('base64'),
+  }
+  const path = join(stateDir, CURSOR_FILE)
+  const tmp = `${path}.${process.pid}.tmp`
+  writeFileSync(tmp, `${JSON.stringify(cursor)}\n`, { mode: 0o600 })
+  renameSync(tmp, path)
+}
+
+/**
+ * Choose where publishing resumes. In order: the rows this same invocation
+ * journaled (exact, including rows committed but never dispositioned); the
+ * session cursor a previous broker life left; a first join. A boundary is
+ * used only while the file still holds the bytes it was taken against.
  */
 export function planClaudeDesktopReplay(
   capture: CaptureGate | undefined,
-  path: string
+  path: string,
+  stateDir?: string | undefined
 ): ClaudeDesktopReplayPlan {
   const records = (capture?.records() ?? []).filter(
     (record) =>
@@ -158,11 +220,50 @@ export function planClaudeDesktopReplay(
       journaled,
     }
   }
+  const cursor = stateDir === undefined ? undefined : readClaudeDesktopCursor(stateDir)
+  if (
+    cursor !== undefined &&
+    cursor.transcriptPath === path &&
+    bytesBefore(path, cursor.byteOffset)?.toString('base64') === cursor.anchor
+  ) {
+    return {
+      mode: 'resume-cursor',
+      liveFromByte: cursor.byteOffset,
+      pendingOffsets: new Set(),
+      journaled: new Map(),
+    }
+  }
   return {
     mode: 'first-join',
     liveFromByte: firstJoinBoundary(path),
     pendingOffsets: new Set(),
     journaled: new Map(),
+  }
+}
+
+function safeRead(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch {
+    return undefined
+  }
+}
+
+function bytesBefore(path: string, offset: number): Buffer | undefined {
+  const length = Math.min(ANCHOR_BYTES, offset)
+  let fd: number
+  try {
+    fd = openSync(path, 'r')
+  } catch {
+    return undefined
+  }
+  try {
+    const bytes = Buffer.alloc(length)
+    return readSync(fd, bytes, 0, length, offset - length) === length ? bytes : undefined
+  } catch {
+    return undefined
+  } finally {
+    closeSync(fd)
   }
 }
 

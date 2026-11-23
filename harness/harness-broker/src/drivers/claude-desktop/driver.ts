@@ -23,6 +23,7 @@ import {
   CLAUDE_DESKTOP_DRIVER_VERSION,
   locateClaudeTranscript,
   planClaudeDesktopReplay,
+  writeClaudeDesktopCursor,
 } from './transcript-plan'
 
 const capabilities: InvocationCapabilities = {
@@ -188,6 +189,18 @@ export function createClaudeDesktopDriver(options: ClaudeDesktopDriverOptions): 
     )
   }
 
+  let publishedThrough: number | undefined
+
+  function saveCursor(stateDir: string | undefined, nextByte: number): void {
+    publishedThrough = nextByte
+    if (stateDir === undefined || transcriptPath === undefined) return
+    try {
+      writeClaudeDesktopCursor(stateDir, transcriptPath, nextByte)
+    } catch (error) {
+      reportHealth(`cursor write failed: ${errorMessage(error)}`)
+    }
+  }
+
   /** Attach to the transcript once it exists, then read whatever is new. */
   function read(hintedPath?: string): void {
     if (ctx === undefined || observer === undefined) return
@@ -197,9 +210,13 @@ export function createClaudeDesktopDriver(options: ClaudeDesktopDriverOptions): 
           ? hintedPath
           : locateClaudeTranscript(claudeHome, sessionId, cwd)
       if (path === undefined) return
-      const plan = planClaudeDesktopReplay(ctx.capture, path)
+      const plan = planClaudeDesktopReplay(ctx.capture, path, ctx.durableStateDir)
       transcriptPath = path
+      publishedThrough = undefined
       observer.open(path, plan)
+      // A first join that published nothing still records where it attached,
+      // so rows written before the next broker starts are not skipped.
+      if (publishedThrough === undefined) saveCursor(ctx.durableStateDir, plan.liveFromByte)
       wakeup?.select(path)
       ctx.emit(
         'driver.notice',
@@ -289,7 +306,12 @@ export function createClaudeDesktopDriver(options: ClaudeDesktopDriverOptions): 
       await release()
       ctx = withDesktopDriverKind(brokerCtx)
       cwd = spec.process.cwd
-      observer = createClaudeDesktopObserver({ ctx, now })
+      const stateDir = brokerCtx.durableStateDir
+      observer = createClaudeDesktopObserver({
+        ctx,
+        now,
+        onRowPublished: (nextByte) => saveCursor(stateDir, nextByte),
+      })
       transcriptPath = undefined
       healthReason = 'claude_desktop_transcript_unavailable'
       wakeup?.reset()
