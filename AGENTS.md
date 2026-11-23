@@ -58,7 +58,7 @@ changed field/operation; for human-only coverage, cite the explicit ruling and s
 
 Ruled by Lance 2026-09-16 (H-00440): **steer = send now, enqueue = send after.** A steer joins the running turn; if no turn is running it STARTS one. Never spec "steer has no turn of its own" again. A client that enqueues its first message is wrong, not the host.
 
-Ruled by Lance 2026-11-17 (T-13668): **callers never choose a door from seat state.** "If they want to steer, they send steer and the broker makes it work regardless of seat busy/idle." HRC and mail delivery keep no seat-state door choice, steer-to-enqueue fallback, or retry hold for steer. Making a steer land is the broker's job, and "brokers should never refuse a steer beyond" the four cases below. Architecture record: `agent-spaces.broker-steer-one-door`.
+Ruled by Lance 2026-11-17 (T-13668): **callers never choose a door from seat state.** "If they want to steer, they send steer and the broker makes it work regardless of seat busy/idle." HRC and mail delivery keep no seat-state door choice, steer-to-enqueue fallback, or retry hold for steer. The broker owns landing and the refusal cases in `agent-spaces.broker-steer-one-door`.
 
 | Seat state | What the broker does with a steer | Live? |
 |---|---|---|
@@ -77,6 +77,7 @@ Ruled by Lance 2026-11-17 (T-13668): **callers never choose a door from seat sta
 2. Fresh context is requested. That is a new session, which belongs to HRC lifecycle.
 3. The host's authorization hook denies it. The hook defaults to allow, and mail fails such an envelope plainly.
 4. The harness write itself fails. The evidence is `not_written` before any write, and `possibly_written` after. Recovery after a possible write is unchanged (`agent-spaces.harness-broker-turn-evidence`). After an ambiguous failed `turn/steer` RPC, Codex still re-sends the same submission as an own turn, accepting a possible duplicate rather than a dropped steer. A Claude pane failure after submit is not re-pasted.
+5. For Claude Desktop mail, the receiver's latest hook reports `bypassPermissions` (T-14466 r3). The broker writes nothing, reports `not_written`, and settles `submission.rejected` with reason `receiver_bypass_permissions`. The envelope stays pending for ordinary kicker retry or expiry.
 
 Every steer reaches exactly one submission terminal (executed, absorbed, rejected, withdrawn, cancelled or lost). The admission reply returns before any hold ends, and no hold or retry emits `input.rejected`. A steer still held when the invocation stops is `cancelled` (`teardown`). Every `submission.*` request takes an optional caller-minted `submissionId`: a repeat with the same id and request returns the first admission reply and creates nothing; the same id with a different request is refused invalid params (T-13689). A Codex TUI delivery returns once Codex acknowledges it, and attribution settles the fate later. Attribution never holds the queue (T-13687).
 

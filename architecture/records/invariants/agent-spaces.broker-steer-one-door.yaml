@@ -6,9 +6,10 @@ scope: harness-broker steer admission across every live seat state
 predicate: >
   A caller chooses steer by intent and never by seat state; HRC, mail delivery
   and other clients keep no door choice, fallback or hold derived from seat
-  state. A harness-broker accepts submission.steer for every live invocation of
-  a seat driver and makes it land: an idle seat starts a turn whose input is the
-  steer; a busy seat injects it into the running turn; while an own-turn
+  state. Subject to the refusal cases below, a harness-broker accepts
+  submission.steer for every live invocation of a seat driver and makes it
+  land: an idle seat starts a turn whose input is the steer; a busy seat
+  injects it into the running turn; while an own-turn
   submission is handed over and its turn has not started, the steer waits for
   that turn and injects; while the invocation is starting, the steer is held
   until it is ready; a guarded turn is never steered into, and the steer waits
@@ -17,12 +18,18 @@ predicate: >
   never answers a prompt; a pane refusal before paste, which writes nothing, is
   held and retried until the input is ready; a driver without the steer class
   admits it through its own queue. A host that owns idle turn creation
-  (steerNeverStartsTurn) receives the steer and starts the turn itself. The
-  broker refuses a steer only when the invocation is stopping, exited, failed
-  or disposed (not_written); when fresh context is requested, which is a new
-  session and belongs to HRC lifecycle; when the host's authorization hook
-  denies it; or when the harness write itself fails, with not_written evidence
-  before any write and possibly_written after. Possibly written recovery is
+  (steerNeverStartsTurn) receives the steer and starts the turn itself.
+  Permitted refusals are a stopping, exited, failed or disposed invocation
+  (not_written), a request for fresh context (a new session under HRC
+  lifecycle), denial by the host's authorization hook, and a harness write
+  failure (not_written before any write, possibly_written after). The sole
+  receiver-mode exception is a mail steer targeting a claude-desktop receiver
+  whose latest hook reports bypassPermissions. For this
+  Claude Desktop exception the broker writes nothing to the peer socket,
+  reports not_written, and settles submission.rejected with reason
+  receiver_bypass_permissions. The kicker leaves the envelope pending for
+  ordinary retry or expiry. The Stop gate enforces reply obligations for presented mail,
+  and crossSessionInbound stays unset. Possibly written recovery is
   unchanged and stays governed by agent-spaces.harness-broker-turn-evidence:
   Codex's same-submission own-turn fallback after an ambiguous failed steer
   RPC still runs, and a Claude pane failure after submit is not re-pasted. Every
@@ -30,11 +37,13 @@ predicate: >
   a broker defect.
 authority:
   repo: agent-spaces
-  surface: Lance rulings 2026-11-17 in wrkq T-13668 ("Callers should not have to choose steer or queue based on a seat's status. If they want to steer, they send steer and the broker makes it work regardless of seat busy/idle"; "brokers should never refuse a steer beyond the cases you mentioned")
+  surface: Lance's 2026-11-17 steer routing and refusal rulings in wrkq T-13668. Lance's 2026-11-23 Claude Desktop bypass mail exception as relayed in EN-60471 and recorded in T-14466 r3.
 source:
   - wrkq:T-13668
   - wrkq:T-13687
   - wrkq:T-13689
+  - wrkq:T-14466
+  - wrkq:EN-60471
   - architecture/records/invariants/agent-spaces.harness-broker-admission.yaml
   - harness/harness-broker/src/invocation-submissions.ts
   - harness/harness-broker/src/invocation-admission.ts
