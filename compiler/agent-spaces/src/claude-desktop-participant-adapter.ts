@@ -33,7 +33,7 @@ function buildDescriptor(
     spec: {
       specVersion: 'harness-broker.invocation/v1',
       invocationId: identity.invocationId,
-      harness: { frontend: driver, provider: 'anthropic', driver },
+      harness: { frontend: 'claude-code-cli', provider: 'anthropic', driver },
       process: {
         command: 'external-claude-desktop',
         args: [],

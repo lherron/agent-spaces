@@ -69,6 +69,17 @@ test.each([
     expect(requests[1]?.body.descriptor).toMatchObject({
       brokerDriver: 'claude-desktop',
       brokerOwnership: 'participant-owned-process',
+      harnessInvocation: {
+        startRequest: {
+          spec: {
+            harness: {
+              frontend: 'claude-code-cli',
+              provider: 'anthropic',
+              driver: 'claude-desktop',
+            },
+          },
+        },
+      },
     })
     const cacheFile = join(claudeHome, 'hrc-desktop-scopes', `${sessionId}.json`)
     expect(JSON.parse(await readFile(cacheFile, 'utf8'))).toMatchObject({
