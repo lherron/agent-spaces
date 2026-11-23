@@ -19,6 +19,7 @@ import type { HookListenerHandle } from '../tmux-shared'
 import type { CodexTuiLauncher } from './codex-tui-wrapper'
 import type { RendererLauncher } from './renderer'
 import type { CodexRpcPeer, RpcHandlers } from './rpc-client'
+import type { TmpKeepalive } from './tmp-keepalive'
 
 export const CODEX_APP_SERVER_DRIVER_VERSION = '0.1.0'
 
@@ -142,6 +143,8 @@ export interface CodexDriverState {
   hrcptyEnding: Promise<void> | undefined
   hookListener: HookListenerHandle | undefined
   attachTokenPath: string | undefined
+  /** Keeps this seat's /private/tmp regular files from macOS's 3-day tmp cleaner. */
+  tmpKeepalive: TmpKeepalive | undefined
   /**
    * hrcpty seats: where the driver publishes the thread's rollout path for the
    * attach-only wrapper, and that path. Codex writes the rollout lazily on the
@@ -250,6 +253,7 @@ export function createCodexDriverState(): CodexDriverState {
     hrcptyEnding: undefined,
     hookListener: undefined,
     attachTokenPath: undefined,
+    tmpKeepalive: undefined,
     rolloutMarkerPath: undefined,
     threadRolloutPath: undefined,
     websocketSocketPath: undefined,

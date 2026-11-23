@@ -131,13 +131,27 @@ function parseArgs(argv: readonly string[]): WrapperArgs {
   }
 }
 
-async function waitForAttachToken(path: string): Promise<string> {
+/** How long an attach-only wrapper waits for the token before saying so in the pane. */
+export const ATTACH_TOKEN_NOTICE_MS = 5_000
+
+async function waitForAttachToken(
+  path: string,
+  notice?: { afterMs: number; write: (line: string) => void }
+): Promise<string> {
+  const started = Date.now()
+  let noticed = false
   for (;;) {
     try {
       const token = (await readFile(path, 'utf8')).trim()
       if (token.length > 0) return token
     } catch {
       // The broker writes the token only after start/resume and resume scrub.
+    }
+    if (notice !== undefined && !noticed && Date.now() - started >= notice.afterMs) {
+      noticed = true
+      notice.write(
+        `\x1b[33mcodex tui: no attach token at ${path} after ${Math.round(notice.afterMs / 1000)} s; the broker has not written it or it was deleted. Still waiting; if this persists, restart the seat.\x1b[0m\r\n`
+      )
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 50))
   }
@@ -325,7 +339,12 @@ export async function runCodexTuiWrapper(argv: readonly string[]): Promise<void>
 
   const threadId =
     serverExit === undefined
-      ? await waitForAttachToken(options.attachTokenPath)
+      ? await waitForAttachToken(
+          options.attachTokenPath,
+          options.attachOnly
+            ? { afterMs: ATTACH_TOKEN_NOTICE_MS, write: (line) => process.stdout.write(line) }
+            : undefined
+        )
       : await Promise.race([waitForAttachToken(options.attachTokenPath), serverExit])
   if (
     options.attachOnly &&

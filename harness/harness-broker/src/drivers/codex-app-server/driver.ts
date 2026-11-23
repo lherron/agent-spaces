@@ -174,6 +174,8 @@ export function createCodexAppServerDriver(options: CodexAppServerDriverOptions 
       s.tuiSpawning = false
       s.hrcptyEnding = undefined
       s.hookListener = undefined
+      s.tmpKeepalive?.stop()
+      s.tmpKeepalive = undefined
       s.attachTokenPath = undefined
       s.rolloutMarkerPath = undefined
       s.threadRolloutPath = undefined

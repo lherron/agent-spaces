@@ -45,6 +45,7 @@ import {
 import type { PermissionHandlerContext, createPermissionRequestIdAllocator } from './permissions'
 import { buildRendererLaunchCommand } from './renderer'
 import { CodexRpcClient } from './rpc-client'
+import { startTmpKeepalive } from './tmp-keepalive'
 
 /** `start()`: transport + presentation bring-up, handshake and thread acquisition. */
 export function createCodexDriverStart(
@@ -190,6 +191,32 @@ export function createCodexDriverStart(
         s.hookListener.socketPath,
         options.codexTuiLauncher
       )
+      const hookSocketPath = s.hookListener.socketPath
+      s.tmpKeepalive?.stop()
+      s.tmpKeepalive = startTmpKeepalive([
+        {
+          path: () => s.attachTokenPath,
+          restore: async (path) => {
+            if (s.startedEmitted && s.threadId !== undefined)
+              await writeFile(path, `${s.threadId}\n`, 'utf8')
+          },
+        },
+        {
+          path: () => s.rolloutMarkerPath,
+          restore: async (path) => {
+            if (s.threadRolloutPath !== undefined)
+              await writeFile(path, `${s.threadRolloutPath}\n`, 'utf8')
+          },
+        },
+        {
+          path: () => hookCliPath,
+          restore: async () => {
+            await writeCodexTuiHookBridgeWrapper(hookSocketPath, options.codexTuiLauncher)
+          },
+        },
+        { path: () => `${websocketPath}.pid` },
+        { path: () => `${socketBase}.codex-tui.launch.json` },
+      ])
       const hookEnv: Record<string, string> = {
         HRC_LAUNCH_HOOK_CLI: hookCliPath,
         HARNESS_BROKER_INVOCATION_ID: driverCtx.invocationId,
