@@ -24,6 +24,9 @@ refuse() { # error message next
   exit 1
 }
 
+# Names are lowercased in every verb, so `avs env T-14445` finds what `scratch up --name T-14445` made (T-14445).
+lower() { tr 'A-Z' 'a-z' <<<"$1"; }
+
 name_ok() { [[ "$1" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || refuse invalid_name "scratch name must match ^[a-z0-9][a-z0-9._-]*$: $1" "avs scratch up --name t-10300"; }
 
 scratch_json() { # name
@@ -36,7 +39,7 @@ print(json.dumps({"name":sys.argv[2],"root":d,"project":d+"/project","asp_home":
 
 scratch_up() {
   local name=avs
-  while [[ $# -gt 0 ]]; do case "$1" in --name) name="$(tr 'A-Z' 'a-z' <<<"$2")"; shift 2;; *) refuse unknown_flag "$1" "avs scratch up [--name N]";; esac; done
+  while [[ $# -gt 0 ]]; do case "$1" in --name) name="$(lower "$2")"; shift 2;; *) refuse unknown_flag "$1" "avs scratch up [--name N]";; esac; done
   name_ok "$name"
   local d="$AVS_ROOT/$name"
   # metrics-var: every asp process appends usage rows under <var root>/state/agent-spaces/metrics (T-11824);
@@ -77,7 +80,7 @@ EOF
 }
 
 scratch_down() {
-  local name="${1:-}"; [[ -n "$name" ]] || refuse missing_name "scratch down needs a name" "avs scratch list"
+  local name; name="$(lower "${1:-}")"; [[ -n "$name" ]] || refuse missing_name "scratch down needs a name" "avs scratch list"
   name_ok "$name"; local d="$AVS_ROOT/$name" dry="${2:-}"
   [[ -d "$d" ]] || refuse not_found "no scratch $name under $AVS_ROOT" "avs scratch list"
   if [[ "$dry" == "--dry-run" ]]; then
@@ -99,7 +102,7 @@ EOF
 }
 
 env_for() {
-  local name="${1:-}"; [[ -n "$name" ]] || refuse missing_name "env needs a name" "avs scratch list"
+  local name; name="$(lower "${1:-}")"; [[ -n "$name" ]] || refuse missing_name "env needs a name" "avs scratch list"
   name_ok "$name"; local d="$AVS_ROOT/$name"
   [[ -d "$d" ]] || refuse not_found "no scratch $name" "avs scratch up --name $name"
   if [[ "${2:-}" == "--sh" ]]; then

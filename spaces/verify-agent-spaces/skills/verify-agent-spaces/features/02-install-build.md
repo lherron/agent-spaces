@@ -18,18 +18,25 @@ plugin-artifacts,build}.ts` and `core/config/src/materializer/`, harness layouts
   a codex or muse bundle of `demo` holds `avs-probe` alone). Each bundle's `.asp-materialized.json` names the
   `materializerVersion` (`target-materializer-v8-claude-no-suggestions-recap` on 2026-10-29); a version bump
   rematerializes every bundle once. Install prunes old bundle versions itself (keeps 3, 15 min).
-- `--harness` accepts six ids (`--help` still lists four): `claude-hrcpty` and `codex-hrcpty` lay out
+- `--harness` accepts seven ids (`--help` still lists four): `claude-hrcpty` and `codex-hrcpty` lay out
   `<bundle>/<target>/claude-hrcpty|codex-hrcpty/` with the base adapter's content, but the `[harness] supports`
   filter is an exact match (`plugin-artifacts.ts:149-155`) and no space lists an hrcpty id, so every
   `supports`-declaring space is dropped: the scratch `demo` claude-hrcpty bundle holds `000-avs-demo` only, against
   `000-avs-demo 001-defaults` for claude (product gap T-12329). HRC compiles materialize hrcpty seats as `claude`/`codex`
   (live clod and smokey bundles), so this hits only the direct CLI (2026-11-02, `T-12323/02-install-build/drive.txt`).
+- `--harness antigravity-hrcpty` (e5b290be) is accepted but the TS compiler refuses it: `✘ unsupported_harness:
+  Antigravity compilation requires raspd.`, exit 1, nothing written (2026-11-23, `T-14445/02-install-build/drive.txt`).
+  Only raspd compiles Antigravity seats, into `ASP_HOME/antigravity-bundles/` and `antigravity-homes/`, not
+  `codex-homes/`. raspd filters `supports` on the exact id, so neon's bundles carry neither `defaults` (supports claude,
+  agent-harness) nor `prae-only` (claude, codex, agent-harness) (read-only, source note `T-14445/sources/02.md`).
 - Plain `install` reuses the existing lock's selector graph (T-11963); only `asp upgrade` (`--update` without ids)
   re-resolves. It validates the lock first: a reordered `loadOrder` refuses `Inconsistent lock load order for target
   demo; run a full update`, exit 1. A partial install (`--targets`, add, remove, run) that would change a shared space
   refuses `Partial install changes shared space …`.
 - `asp build [target] --harness h --output <dir>`: materializes without launching; plugin dirs live in
-  `ASP_HOME/cache/<hash>`, `--output` gets `settings.json`.
+  `ASP_HOME/cache/<hash>`, `--output` gets `settings.json`. With no lock it installs first and warns `[W101] Lock file
+  was missing and has been auto-generated`; `--no-install` refuses instead: `No lock file found. Run install first or
+  set autoInstall: true`, exit 1 (2026-11-23, `T-14445/02-install-build/drive.txt`).
 - `asp gc [--dry-run] [--project-only] [--scope-roots [--min-age-days N]]`: prints its root locks under `Roots:`
   (project `asp-lock.json`, `ASP_HOME/global-lock.json`), keeps snapshots and cache entries unless `--project-only`,
   prunes stale bundle versions (keep 3, 15 min: `store/gc.ts:26-27`), and with `--scope-roots` retires unused

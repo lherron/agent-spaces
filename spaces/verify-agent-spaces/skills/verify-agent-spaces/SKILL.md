@@ -141,7 +141,8 @@ The procedure is [MAINTAIN.md](MAINTAIN.md).
 ## Helpers
 
 `avs` (this directory, executable) is the one helper. Every verb but `rec` prints one JSON object. A refusal
-prints `{error, message, next}` and exits 1.
+prints `{error, message, next}` and exits 1. Scratch names are lowercased in every verb, so `avs env T-14445` finds what
+`scratch up --name T-14445` made (before T-14445 only `up` lowercased, and `env` refused the task id).
 
 | Verb | Invocation | Does |
 | --- | --- | --- |
@@ -149,7 +150,7 @@ prints `{error, message, next}` and exits 1.
 | `scratch up` | `avs scratch up [--name N]` | Writes the scratch project (targets `demo`, `local-only`; space `avs-demo` with skill `avs-probe`) and an empty ASP_HOME under `$AVS_ROOT/N` (default `~/praesidium/var/state/avs`), prints root, project, asp_home |
 | `scratch down` | `avs scratch down N [--dry-run]` | Removes that scratch root |
 | `scratch list` | `avs scratch list` | The scratch roots that exist |
-| `env` | `avs env N [--sh]` | The scratch's paths as JSON, or `export ASP_HOME=… AVS_PROJECT=… ASP_USAGE_METRICS_VAR_ROOT=…` lines |
+| `env` | `avs env N [--sh]` | The scratch's paths as JSON, or `export ASP_HOME=… AVS_PROJECT=… ASP_USAGE_METRICS_VAR_ROOT=…` lines. A refusal prints JSON that `eval` cannot run, which leaves the seat's own `ASP_HOME` and metrics root in place, so check `echo $ASP_HOME` after the eval |
 | `rec` | `avs rec FILE -- 'CMD'` | Runs CMD under bash, appends `## <UTC>`, `$ CMD`, output and `[exit N]` to FILE, and echoes them |
 | `aspc` | `avs aspc SOCKET METHOD ['<json>']` | One NDJSON JSON-RPC call to an aspd socket; `aspc.hello` params are filled in |
 | `broker-hello` | `avs broker-hello` | Spawns `harness-broker run --transport stdio` without `HARNESS_BROKER_OBSERVER_*`, sends `broker.hello`, prints the reply |

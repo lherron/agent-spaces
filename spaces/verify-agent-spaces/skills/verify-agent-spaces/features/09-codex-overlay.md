@@ -15,7 +15,11 @@ hook entries in `config.toml` and `hooks.json`. Code: `scripts/sync-agent-to-cod
 - Invariants: `projectId=praesidium`, `taskId=primary`, `runMode=query`; markerless skill collisions warn and
   skip; managed skills are overwritten only while their marker hash matches; a previous agent's managed block and
   skills are retired (planning `--agent clod` over a stella home lists `plan.retire.agents: ["stella"]` and stella's
-  skills, 2026-11-09).
+  manifest, 2026-11-23). A profile with a retired key refuses the plan: a scratch `--agents-root` copy of stella with
+  `claims_task = true` gives `Invalid agent-profile.toml: /claims_task: unknown property "claims_task"`, exit 1
+  (T-14373; 2026-11-23, `T-14445/09-codex-overlay/drive.txt`).
+- The overlay materializes with the in-process TS compiler, not raspd (`paths` usage rows in the scratch metrics root);
+  it needs a new materializer before the TS compiler is deleted (ASP sole-compiler rulings, source).
 - `just overlay-codex [args]` is `--install-hooks --apply` against `~/.codex`, with any extra arguments forwarded
   (`just -n overlay-codex --to <x> --asp-home <h>` prints the command without running it).
 
@@ -32,7 +36,7 @@ X=<scratch>/codex-home; H=<scratch>/asp-home; mkdir -p $X
 bun scripts/sync-agent-to-codex-default.ts --to $X --asp-home $H --json            # plan; applied false
 find $X                                                                              # still empty
 bun scripts/sync-agent-to-codex-default.ts --to $X --asp-home $H --install-hooks --apply --json
-ls -A $X; ls $X/skills | wc -l; grep -c trusted_hash $X/config.toml               # .asp-agent-sync, AGENTS.md, config.toml, hooks.json, skills; = planned skills (22 on 2026-11-16); 3
+ls -A $X; ls $X/skills | wc -l; grep -c trusted_hash $X/config.toml               # .asp-agent-sync, AGENTS.md, config.toml, hooks.json, skills; = planned skills (27 on 2026-11-23); 3
 ls $X/.asp-agent-sync                     # desktop-registration-discovery.mjs, pre-tool-use-praesidium-env.mjs, stella.json
 bun scripts/sync-agent-to-codex-default.ts --to $X --asp-home $H --install-hooks --json   # agents unchanged; plan.hooks *Action all unchanged
 M=<plan.materializedHome>; grep -c pkill-guard $M/hooks.json $X/hooks.json        # 1 and 0: T-11380
@@ -58,13 +62,13 @@ bun scripts/sync-agent-to-codex-default.ts --to $X --bogus                      
   scratch `ASP_USAGE_METRICS_VAR_ROOT` (`avs env`) first.
 - The plan materializes the agent under `--asp-home` even without `--apply` (`codex-homes/praesidium_codex-default-
   <agent>/…`); a dry run is not write-free for ASP_HOME, only for the Codex home.
-- The skill count (26 for stella on 2026-10-05, 25 on 2026-10-19, 26 on 2026-10-26, 2026-11-02 and 2026-11-09, 22 on 2026-11-16) follows stella's content in `var/agents`, not
+- The skill count (26 for stella on 2026-10-05, 25 on 2026-10-19, 26 on 2026-10-26, 2026-11-02 and 2026-11-09, 22 on 2026-11-16, 27 on 2026-11-23) follows stella's content in `var/agents`, not
   the code; check "one directory per planned skill", not the number.
 - The two hook scripts and the agent's manifest live in `$X/.asp-agent-sync/`. The discovery hook reads
   `~/praesidium/var/aspd/service/active.json` when it runs and spawns that release's `harness-broker`, so an aspd
     activation changes the broker a desktop conversation joins without re-running the overlay (source,
-  `scripts/codex-default-overlay/constants.ts`; `ASPD_ACTIVE_JSON` overrides). On 2026-11-16 that is
-  `asp-23285c53d130-…/harness-broker` (executable; `release.json` releaseId matches), the launcher over
+  `scripts/codex-default-overlay/constants.ts`; `ASPD_ACTIVE_JSON` overrides). On 2026-11-23 that is
+  `asp-c842914dbbc6-…/harness-broker` (executable; `release.json` releaseId matches), the launcher over
   `libexec/harness-broker`, not a `bin/` copy (feature 6).
 - **The PreToolUse hook injects `prae` (28cd0cd0).** Besides `asp`, `hrc` and `acp` it prefixes `prae` commands with
   the thread's `HRC_SESSION_REF`, and adds `HRC_RUNTIME_ID='<id>'` only while `$CODEX_HOME/hrc-desktop/<thread>/join.json`
@@ -81,6 +85,6 @@ three `hooks.state` entries, `hooks.json`, and one directory per planned skill; 
 unchanged` and every hooks action `unchanged`; `plan.priming.text` names stella; the PreToolUse hook exports
 `HRC_RUNTIME_ID` for `prae` only once the thread is joined.
 
-Driven 2026-11-16 on scratch `t-13644` against checkout e805b5cb (T-13644):
-`var/wrkq-artifacts/T-13644/09-codex-overlay/drive.txt` (`~/.codex` mtimes unchanged across it; T-11380 reproduces). Source only: the
-markerless-collision skip and the marker-hash overwrite guard.
+Driven 2026-11-23 on scratch `t-14445` against checkout 33556b1c (T-14445):
+`var/wrkq-artifacts/T-14445/09-codex-overlay/drive.txt` (`~/.codex` mtimes unchanged across it; T-11380 reproduces;
+retired-key refusal driven). Source only: the markerless-collision skip and the marker-hash overwrite guard.

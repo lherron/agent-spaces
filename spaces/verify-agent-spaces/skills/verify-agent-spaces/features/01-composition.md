@@ -15,8 +15,12 @@ list,path,diff}.ts`, `apps/cli/src/commands/{repo,spaces}/`, resolution in `core
 - `asp explain [target] [--json]`: `Spaces root:` (the resolved shared root, not the lock's registry remote), lock version, per-target compose, env hash, load order (key,
   commit, selector, components, hooks) and the composed commands, skills and hooks. Needs a lock with that target.
 - `asp describe [target] --harness <h>`: hooks, skills, tools and lint warnings as the harness would materialize
-  them. `<h>` is any of the six harness ids (`agent-harness`, `claude`, `claude-hrcpty`, `codex`, `codex-hrcpty`,
-  `muse`). For an hrcpty id it still lists `supports`-gated spaces that `install` drops (T-12329, feature 2).
+  them. `<h>` is any of the seven harness ids (`agent-harness`, `claude`, `claude-hrcpty`, `codex`, `codex-hrcpty`,
+  `antigravity-hrcpty`, `muse`). For an hrcpty id it still lists `supports`-gated spaces that `install` drops
+  (T-12329, feature 2). `antigravity-hrcpty` (e5b290be) compiles only in raspd: `describe --harness
+  antigravity-hrcpty` refuses `asp: unsupported_harness: Antigravity compilation requires raspd.` exit 1
+  (`drivers/execution/src/harness/antigravity.ts`), while `explain --harness antigravity-hrcpty` prints the usual
+  report (2026-11-23, `T-14445/01-composition/drive.txt`).
 - Since aa3bb12d (T-12326) `explain` reads each locked space's `space.toml` for an optional `[path] exclude` list and
   prints the sorted union as `PATH exclude: …` under Composed content (the PATH filter itself is compile-side). `lint`
   does not read it: adding `[path] exclude` to a scratch space left `lint --json` byte-identical. `prae-only` declares
@@ -33,7 +37,7 @@ list,path,diff}.ts`, `apps/cli/src/commands/{repo,spaces}/`, resolution in `core
   space (hook script 0755) or prints `Manager space already present`. `new-space` writes `space.toml` plus
   `commands/ skills/ agents/ mcp/`, no `hooks/` (an empty one trips W204). `repo status` lists every directory under
   `spaces/`; `spaces list` only those whose `space.toml` parses (14 vs 13 on 2026-10-19: `archived-unused`; 13 and 13
-  on 2026-11-16). The git
+  on 2026-11-16; 7 and 7 on 2026-11-23 after the prae collapse, var/agents 57c5312). The git
   registry verbs `asp repo publish|tags|gc` were removed (T-10367) and exit 2 `unknown command '<verb>'`.
 - `describe` on a target of only `@dev` and project spaces skips the shared root's registry fetch since 15dbde97
   (`~/praesidium/var/agents/.git/FETCH_HEAD` mtime unchanged; a `materialize.registry-fetch` `skipped` path row).
@@ -70,7 +74,10 @@ cd ~/praesidium/agent-spaces && asp lint --json
   On 2026-11-02 the canonical lock lacked animata, animan, locallarry and foundry
   (`T-12323/01-composition/canonical-explain-per-target.txt`); on 2026-11-16 it still did, and it also held stale
   `muse` and `mux` targets that `asp-targets.toml` no longer has (`T-13644/01-composition/drive.txt`).
-- Canonical `asp lint --json` warnings follow `var/agents` content: 3 `W204` errors on 2026-11-02 (the
+- A `deps.spaces` cycle between project spaces refuses at `install`: `✘ Cyclic dependency detected: avs-a@project ->
+  avs-b@project -> avs-a@project` (2026-11-23, scratch copy, `T-14445/01-composition/drive.txt`).
+- Canonical `asp lint --json` warnings follow `var/agents` content: 2 `W204` on 2026-11-23 (clod's and cody's, both
+  from `console-defaults`; `prae-console-defaults` is gone); 3 `W204` errors on 2026-11-02 (the
   `console-defaults` space has a `hooks/` dir with no hooks config; on 2026-11-16 clod's comes from
   `prae-console-defaults`, muse's and cody's from `console-defaults`), `[]` on 2026-10-26. During T-12326's pre-landing
   work it failed `{"error":{"message":"File not found"}}` exit 1; fixed before aa3bb12d (`T-12323/01-composition/drive.txt`).
@@ -80,6 +87,9 @@ cd ~/praesidium/agent-spaces && asp lint --json
 - `asp repo status` lists `git.changes` for `spaces/` only; other dirt in the agents repo is not shown.
 - `asp diff --json` stays `{"diffs": []}` after editing a project space's files; it is not a no-change proof for
   `@dev` or project spaces (2026-10-19, `T-11375/01-composition/drive.txt`).
+- larry, smokey and curly were archived from `var/agents` (fdff852, P-01214; `spaces/smokey` too), but their targets
+  stay in the canonical `asp-targets.toml`. `explain` still prints them from the lock; launching them refuses
+  (feature 3; product gap T-14446). Use clod and cody as canonical subjects.
 - The canonical project's targets larry, smokey, curly and animan compose `praesidium-defaults@dev` after
   `defaults@dev` (9f1eb3d9); `asp explain larry --no-lint | grep Key:` shows both.
 - `asp explain clod` from `~/praesidium/foundry` printed `No lock file found` with exit 0 inside a pipe; read
@@ -90,9 +100,9 @@ cd ~/praesidium/agent-spaces && asp lint --json
 On a fresh scratch: `lint` reports W101 before install and nothing after; `explain demo` shows both spaces in load
 order with the defaults hooks and lists `avs-probe (from avs-demo)` under composed skills; `describe local-only
 --harness claude` names `avs-probe`; `list` shows both targets locked; `diff --json` is empty; the registry verbs
-refuse with exit 2; `asp lint --json` on the canonical project exits 0 with its warnings array (3 W204 on
-2026-11-02).
+refuse with exit 2; `asp lint --json` on the canonical project exits 0 with its warnings array (2 W204 on
+2026-11-23).
 
-Driven 2026-11-16 on scratch `t-13644` against checkout e805b5cb (T-13644):
-`var/wrkq-artifacts/T-13644/01-composition/drive.txt` (canonical lint: 3 `W204`; the lock still lacks animata, animan,
-locallarry and foundry; `[path] exclude` driven on a scratch copy).
+Driven 2026-11-23 on scratch `t-14445` against checkout 33556b1c (T-14445):
+`var/wrkq-artifacts/T-14445/01-composition/drive.txt` (canonical lint: 2 `W204`; the lock lacked animata, animan,
+locallarry and foundry at pass start, and the pass's dry-runs added locallarry; antigravity-hrcpty `describe` refusal and the dependency-cycle refusal driven).

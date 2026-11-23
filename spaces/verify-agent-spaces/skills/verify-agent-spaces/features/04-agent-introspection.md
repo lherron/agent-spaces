@@ -26,11 +26,13 @@ resources (`asp resources plan`). Code: `apps/cli/src/commands/self/`, `apps/cli
   `agent-inspection-request/v2`. It compiles the runtime plan (silently: the compiler writes nothing to stderr).
 - `asp resources plan <agent> --project p [--agent-root d] [--include path…]`:
   `agent-authored-runtime-resources.plan/v1` JSON on stdout, the `Compiled resources plan for a@p: N resources
-  (scheduled-job=…)` summary on stderr. `--project` is required (exit 2 without it). Every resource must target
-  `--project`: a schedule for another project refuses `target project <x> does not match the planned project <p>`,
-  exit 1. `[trigger].timezone` (IANA) projects to `desiredJson.schedule.timezone`; a bad zone refuses `must be an
-  IANA time zone`, a top-level `timezone` refuses `set [trigger].timezone instead`, and `--include hooks/…` refuses
-  as a reserved directory, each exit 1.
+  (interface-binding=…, event-hook=…)` summary on stderr. `--project` is required (exit 2 without it). Every refusal
+  prints `asp: <CODE>: <message>`, exit 1. Every resource must target `--project`: `mneme --project agent-spaces`
+  refuses `CROSS_OWNER_TARGET: channels/discord-primary.toml: target project signal-pipeline does not match the planned
+  project agent-spaces`. `--include hooks/…` refuses as a reserved directory. Since 1918213f (T-14268) schedules are
+  not runtime resources: `--include schedules/…` refuses `SCHEDULE_MODULE_OWNED: … schedules are owned by the
+  praesidium-kernel schedule module`, and the `[trigger].timezone` projection and its refusals are gone (2026-11-23,
+  `T-14445/04-agent-introspection/drive.txt`).
 
 ## How to get to it
 
@@ -48,12 +50,12 @@ asp self paths                       # SOUL, profile, context-template EDIT; bun
 asp self prompt reminder
 asp self explain prompt
 cd ~/praesidium/agent-spaces && asp resolve-reminder clod
-asp resources plan clod --project infra                 # 1 resource (disk-sample schedule) on 2026-10-26
-asp resources plan clod --project agent-spaces          # refuses: that schedule targets infra, exit 1
+asp resources plan mneme --project signal-pipeline      # 3 resources (interface-binding=1 event-hook=2) on 2026-11-23
+asp resources plan mneme --project agent-spaces         # CROSS_OWNER_TARGET, exit 1
 asp resources plan clod                                 # required option '--project <project>', exit 2
-asp resources plan foundry --project foundry --include schedules/foundry-daily-report.toml   # timezone America/Chicago
+asp resources plan foundry --project foundry --include schedules/foundry-daily-report.toml   # SCHEDULE_MODULE_OWNED, exit 1
 asp self memory paths; asp self memory inspect  # memory, user, persona with zone labels and chars/budget
-asp agents catalog --context $CTX --json        # 33 agents, 0 errors on 2026-11-16 (var/agents c420d10 retired 20)
+asp agents catalog --context $CTX --json        # 23 agents, 0 errors on 2026-11-23 (33 on 2026-11-16)
 asp agents inspect --request $REQ --context $CTX --json   # with foundry's ids/root: ok false, agent_self_brokered, exit 1 (stella: agent_participant_only)
 asp agents inspect --request $REQ --context $CTX --json
 ```
@@ -65,18 +67,24 @@ asp agents inspect --request $REQ --context $CTX --json
   harness, provider and prompts come only from a launch artifact. `asp self prompt reminder` reads an empty
   `session-reminder.md` from a Claude seat's bundle. The reminder a seat actually received comes from `asp
   resolve-reminder` or `asp self prompt reminder --recompute` (2026-10-19, `T-11375/04-agent-introspection/drive.txt`).
-- `resources plan` counts follow `var/agents` content, not the code: clod gained an `infra` schedule on 2026-10-13
-  (T-10808), so `--project agent-spaces` now refuses. Plan each agent with the project its resources target.
-- `asp agents inspect` replays the context file strictly. With `serviceProbeInputs.responses: []` it returns 7 parts:
-  the prompt part `failed` (`Missing recorded service probe response for "HRC" at "unix://…/hrc.sock", occurrence 1`),
-  the other six `effective`, `ok: true`. Pin `{name, endpoint, up}` responses for HRC (`unix://…/var/run/hrc/hrc.sock`),
-  ACP (`http://127.0.0.1:18470`) and taskboard (`http://127.0.0.1:18450`) and the prompt expands to 24 parts.
+- `resources plan` counts follow `var/agents` content, not the code: clod plans 0 resources for any project on
+  2026-11-23 (its `infra` schedule no longer compiles, T-14268). Plan each agent with the project its resources target.
+- An `antigravity-hrcpty` identity (neon) is valid inspection input, but the TS compiler refuses it: `ok: false`, 0
+  parts, `unsupported_harness: Antigravity compilation requires raspd.`, exit 1 (2026-11-23).
+- `asp agents inspect` replays the context file strictly. With `serviceProbeInputs.responses: []` it returns 8 parts for cody
+  (7 for larry before 2026-11-23): the prompt part `failed` (`Missing recorded service probe response for "HRC" at
+  "unix://…/hrc.sock", occurrence 1`), the rest `effective`, `ok: true`. Pin `{name, endpoint, up}` responses for HRC (`unix://…/var/run/hrc/hrc.sock`),
+  ACP (`http://127.0.0.1:18470`) and taskboard (`http://127.0.0.1:18450`) and the prompt expands to 28 parts (19 effective / 8 skipped / 1 failed; 20 / 8 / 0 with HOME and PATH in
+  `execInputs`, 2026-11-23).
 - **CLI inspection runs exec sections for real.** The reminder's `just info`, `wrkq info` and `wrkc info` execute in
   `execInputs.cwd` with `execInputs.environment` as their whole env: with `{}` all three fail exit 127 (no PATH);
   with HOME and PATH they run and the result is 16 `effective`, 8 `skipped`. `project-tooling` (`just info`) now
   resolves for agent-spaces since exec sections run in the project root (4d0b5d4c, 15315fb0) (2026-11-02,
   `T-12323/04-agent-introspection/`). The aspd/ACP `inspectAgentSelection` path instead probes the three services
   live, connect-only (f675918e; source, feature 6).
+- **The shared template is prae now (2026-11-23).** `var/agents/context-template.toml` has no `wrkq`/`wrkc` sections
+  (`grep -c` 0) and clod has no agent-local template; `resolve-reminder clod` is 1582 bytes and `resolve-reminder cody`
+  2132 bytes with or without `~/.local/bin` on PATH. The next bullet is the history before that.
 - **From a prae seat `resolve-reminder` renders no wrkq or wrkc guide.** The shared template's `wrkq-context` and
   `wrkc-context` sections are exec sections (`wrkq info`, `wrkc info`, stderr dropped), and a prae seat has neither CLI
   on PATH (T-12654), so they render empty: `asp resolve-reminder larry` is 775 bytes with 0 `wrkq` lines, and 16270
@@ -87,23 +95,22 @@ asp agents inspect --request $REQ --context $CTX --json
   false` with `agent_self_brokered` and stella (`participant-only`) with `agent_participant_only`, exit 1
   (`compile-runtime-plan.ts:22-60`), while `asp run`/`asp agent` still print a launch for both (feature 3). Their
   catalog rows have 0 errors (2026-11-16, `T-13644/04-agent-introspection/{request,context}-{foundry,stella}.json`).
-- The prompt's scope line renders from the assigned scope (`ScopeRef: agent:larry:project:agent-spaces` in the pinned
+- The prompt's scope line renders from the assigned scope (`ScopeRef: agent:cody:project:agent-spaces` in the pinned
   inspect, no literal `{{agentProjectScopeRef}}` there, in `resolve-reminder clod` or in `self prompt reminder
   --recompute`). `asp self inspect --raw-env` does not list `SCRATCH`, although HRC sets it on every seat (946d366c)
-  (2026-11-16).
+  (2026-11-23).
 - The catalog's `defaultContextSummary` matched the context file's identifiers (project, mode, harness `codex`)
   for every agent on 2026-10-05; don't read it as each agent's profile default without checking the profile.
 
 ## Proven when
 
 `asp self inspect` names this seat's scope and task; `asp self paths` resolves the agent root; `resolve-reminder`
-prints the reminder text (with the wrkq and wrkc guides only when those CLIs are on PATH); `self memory paths` lists the
+prints the reminder text (the same bytes with or without the owner CLIs on PATH since the prae template); `self memory paths` lists the
 three targets; `agents catalog` returns every agent root with `errorCount` 0; `agents inspect`
 returns `ok: true` with parts and dispositions, and `ok: false` with the launch-mode code for foundry and stella; `resources plan` prints a v1 plan for the project its resources
-target, projects `[trigger].timezone`, and refuses a mismatched project, a bad zone and a top-level `timezone`.
+target, and refuses a mismatched project (`CROSS_OWNER_TARGET`) and a schedule include (`SCHEDULE_MODULE_OWNED`).
 
-Driven 2026-11-16 from seat `clod@agent-spaces:T-13644` against checkout e805b5cb (T-13644):
-`var/wrkq-artifacts/T-13644/04-agent-introspection/` (`drive.txt`, `context.json`, `context-pinned.json`,
-`context-pinned-env.json`, `request.json`, the foundry and stella pairs and the three `inspect-*.json`; empty responses: 7 parts, prompt `failed`;
-pinned: 24 parts, 13 effective / 8 skipped / 3 failed; pinned with env: 16 effective / 8 skipped). The timezone
-refusals were last driven 2026-10-26 (`T-11875/04-agent-introspection/`); no `resources/` code change since.
+Driven 2026-11-23 from seat `clod@agent-spaces:T-14445` against checkout 33556b1c (T-14445):
+`var/wrkq-artifacts/T-14445/04-agent-introspection/` (`drive.txt`, the request/context files rebuilt for cody since larry
+is archived, the foundry, stella and neon pairs and the three `inspect-*.json`; empty responses: 8 parts, prompt
+`failed`; pinned: 28 parts, 19 effective / 8 skipped / 1 failed; pinned with env: 20 effective / 8 skipped; catalog 23).

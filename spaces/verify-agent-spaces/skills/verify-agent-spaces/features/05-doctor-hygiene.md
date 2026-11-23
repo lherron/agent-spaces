@@ -10,7 +10,9 @@ the agent-hygiene lint over skills and agent roots (`asp lint --hygiene`), and t
 - `asp doctor [--json]`: claude binary and version, ASP_HOME, cache and snapshot writability, the shared spaces
   root (a plain directory; no git-remote probe since T-10370), the project, agent roots, the profile-model audit.
 - `asp harnesses [--json]`: each harness (`agent-harness` default, `claude`, `claude-hrcpty`, `codex` experimental,
-  `codex-hrcpty`, `muse`; the hrcpty ids reuse the base detection) with path, version, capabilities and models per
+  `codex-hrcpty`, `antigravity-hrcpty`, `muse`; `claude-hrcpty` and `codex-hrcpty` reuse the base detection;
+  `antigravity-hrcpty` (e5b290be) has no base: it finds `agy` on PATH (`/opt/homebrew/bin/agy`) and reports no version,
+  no capabilities and google models, and with `agy` off PATH it reads `available: false`, `agy was not found on PATH`) with path, version, capabilities and models per
   provider. JSON shape `{defaultHarness, harnesses: [{id, name,
   detection: {available, version, path, capabilities}, modelProviders[], experimental}]}` (`codex` alone is
   `experimental: true`; `codex-hrcpty` is not).
@@ -29,7 +31,7 @@ the agent-hygiene lint over skills and agent roots (`asp lint --hygiene`), and t
   markers, trimmed), never the whole file. Sections split on `\n\n---\n\n`. Agents with no usable invocation report 0
   with `missingPromptArtifact: no broker invocation whose resident prompt is still on disk`. `--json` rows carry
   `invocationId`, `harness` and `systemPromptFile`; `harness` is the spec's frontend (`claude-code`, `codex`,
-  `muse-cli`, or null when unpriced), not the `broker_driver` the HRC DB groups by.
+  `muse-cli`, `antigravity-cli`, or null when unpriced), not the `broker_driver` the HRC DB groups by.
 
 ## How to get to it
 
@@ -40,13 +42,13 @@ token-rent reads the HRC DB read-only. Pass `--now` to token-rent so two runs co
 
 ```bash
 cd $AVS_PROJECT && asp doctor                                   # All checks passed!
-asp harnesses                                                    # 6/6 available
-asp lint --hygiene ~/praesidium/var/agents/clod | tail           # W415/W422 info findings
+asp harnesses                                                    # 7/7 available
+asp lint --hygiene ~/praesidium/var/agents/clod | tail           # W410/W412/W413 info findings on 2026-11-23
 asp lint --hygiene $AVS_PROJECT/spaces/avs-demo/skills/avs-probe # Scanned 1 unit, no findings
 asp lint --hygiene $AVS_PROJECT/spaces/avs-demo --strict; echo $? # Scanned 0 units, exit 0
 asp lint --judge ~/praesidium/var/agents/clod                     # resolves to 4 units, exit 1 (no model run)
 asp token-rent --agent clod --now 2026-11-02T09:30:00Z
-asp token-rent --json --now 2026-11-02T09:30:00Z > $OUT          # 30 agents, 26 priced on 2026-11-16 (arris, blaze, foundry, stella unpriced)
+asp token-rent --json --now 2026-11-02T09:30:00Z > $OUT          # 31 agents, 27 priced on 2026-11-23 (arris, blaze, foundry, stella unpriced)
 python3 ~/praesidium/var/wrkq-artifacts/T-12323/05-doctor-hygiene/rent-check.py $OUT <agent>   # reported == computed
 sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
   "select broker_driver, count(*), sum(json_extract(spec_projection_json, '$.launch.systemPromptFile') is not null)
@@ -57,8 +59,11 @@ sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
 
 - `asp lint --hygiene <space dir>` scans 0 units and passes, even with `--strict`. Point it at a skill directory,
   an agent root or `var/agents`, never at a space root.
-- The `claude-code-hrcpty` broker driver's invocations carry `launch.systemPromptFile` (1019/1019 on 2026-11-16) and
-  report harness `claude-code`, so hrcpty Claude seats price like tmux ones. The HRC driver mix on 2026-11-16:
+- The `claude-code-hrcpty` broker driver's invocations carry `launch.systemPromptFile` (1047/1047 on 2026-11-23) and
+  report harness `claude-code`, so hrcpty Claude seats price like tmux ones. `antigravity-cli-hrcpty` (24/24, live
+  since 2026-11-19) prices the same way with harness `antigravity-cli`: neon matched `rent-check.py` exactly
+  (2026-11-23, `T-14445/05-doctor-hygiene/drive.txt`). token-rent prices any agent HRC invoked, so archived agents
+  (larry, smokey, curly) still have rows. The HRC driver mix on 2026-11-16:
   `claude-code-hrcpty` and `codex-app-server` are live (codex prices through its AGENTS.md); `codex-desktop`,
   `foundry-resident` and `arris-resident` rows carry no prompt file and their agents are unpriced; `claude-code-tmux`
   (last 2026-10-29), `codex-cli-tmux` (2026-09-06) and `muse-serve` (2026-09-20) are retired. muse itself left
@@ -81,12 +86,12 @@ sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
 
 ## Proven when
 
-`asp doctor` passes on the scratch; `asp harnesses` shows 6/6 with a default per provider; hygiene on a real agent
+`asp doctor` passes on the scratch; `asp harnesses` shows 7/7 with a default per provider; hygiene on a real agent
 root returns findings with file:line and on the probe skill scans 1 unit; token-rent prices every agent whose
 newest invocation carries a prompt (claude and codex drivers in the count above), and `residentTokens` equals the
 sum of `ceil(section chars / 4)` over the priced text for claude agents and codex agents (the codex ones over their
 context block only).
 
-Driven 2026-11-16 on scratch `t-13644` against checkout e805b5cb (T-13644):
-`var/wrkq-artifacts/T-13644/05-doctor-hygiene/drive.txt` (with `rent-check.py`; clod, mable, cody and larry matched
-exactly; T-11378 reproduces; canonical `asp doctor` exits 0 with a model-audit warning).
+Driven 2026-11-23 on scratch `t-14445` against checkout 33556b1c (T-14445):
+`var/wrkq-artifacts/T-14445/05-doctor-hygiene/drive.txt` (with `rent-check.py`; clod, mable, cody, larry and neon matched
+exactly; T-11378 reproduces; canonical `asp doctor` exits 0 with a model-audit warning over clod and cody).
