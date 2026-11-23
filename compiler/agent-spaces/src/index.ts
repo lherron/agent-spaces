@@ -91,6 +91,11 @@ export type {
   ResolvedHarnessExecution,
 } from './harness-selection/index.js'
 
+export {
+  CLAUDE_DESKTOP_PARTICIPANT_CLASS,
+  createClaudeDesktopParticipantAdapter,
+} from './claude-desktop-participant-adapter.js'
+
 export { admitDesktopRegistration, resolveDesktopIdentity } from './desktop-native-identity.js'
 export {
   CODEX_DESKTOP_PARTICIPANT_ADAPTER_ID,

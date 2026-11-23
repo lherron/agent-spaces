@@ -50,6 +50,7 @@ export type DesktopJoinClient = {
   sessionId: string
   classId: string
   agentId: string
+  fallbackProjectId?: string
   cacheIdentity: Record<string, string>
   statePaths(): DesktopStatePaths
   adapter: ParticipantAdapter
@@ -275,6 +276,15 @@ export async function runDesktopJoin(
         registryProjects,
         ...(input.agentsRoot === undefined ? {} : { agentsRoot: input.agentsRoot }),
       })
+    }
+    if (!('bound' in project) && client.fallbackProjectId !== undefined) {
+      project = {
+        bound: {
+          projectId: client.fallbackProjectId,
+          projectRoot: admission.workspaceCwd,
+          resolvedBy: 'fallback',
+        },
+      }
     }
     if (!('bound' in project)) {
       log('no-project', { reason: project.reason, detail: project.detail })

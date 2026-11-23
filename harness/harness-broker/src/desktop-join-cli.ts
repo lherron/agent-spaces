@@ -1,53 +1,70 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type CodexDesktopJoinInput, createCodexDesktopJoinClient } from './desktop-join-codex.js'
+import { createClaudeDesktopJoinClient } from './desktop-join-claude.js'
+import { createCodexDesktopJoinClient } from './desktop-join-codex.js'
 import {
+  type DesktopJoinClient,
   type DesktopJoinInput,
   type JoinLifecycle,
   errorMessage,
   runDesktopJoin,
 } from './desktop-join.js'
 
-const DESKTOP_JOIN_USAGE =
-  'Usage: harness-broker desktop-join --thread <id> [--rollout <path> --cwd <dir> --codex-home <dir> --hrc-socket <path> --source <hook> --deadline-ms <ms>]'
+const DESKTOP_JOIN_USAGE = [
+  'Usage: harness-broker desktop-join [--harness codex-desktop] --thread <id> [--rollout <path> --cwd <dir> --codex-home <dir>]',
+  '       CLAUDE_PID=<pid> harness-broker desktop-join --harness claude-desktop --session <id>',
+  'Both forms accept --hrc-socket <path> --source <hook> --deadline-ms <ms>.',
+].join('\n')
 
-export function parseDesktopJoinArgs(args: string[]): DesktopJoinInput & CodexDesktopJoinInput {
+export function parseDesktopJoinArgs(
+  args: string[],
+  fromStdin: ReturnType<typeof readHookStdinIds> = {}
+): { client: DesktopJoinClient; input: DesktopJoinInput } {
   const flag = (name: string): string | undefined => {
     const index = args.indexOf(name)
-    return index === -1 ? undefined : args[index + 1]
+    const value = args[index + 1]
+    return index === -1 || value?.startsWith('--') ? undefined : value
   }
-  const threadId = flag('--thread')
-  const codexHome =
-    flag('--codex-home') ??
-    process.env['CODEX_HOME'] ??
-    join(process.env['HOME'] ?? tmpdir(), '.codex')
+  const homeDir = process.env['HOME'] ?? tmpdir()
   const hrcSocketPath =
     flag('--hrc-socket') ??
     process.env['HRC_CALLBACK_SOCKET'] ??
-    join(process.env['HOME'] ?? tmpdir(), 'praesidium', 'var', 'run', 'hrc', 'hrc.sock')
-  if (threadId === undefined || threadId.length === 0) {
-    throw new Error(DESKTOP_JOIN_USAGE)
-  }
-  const rolloutPath = flag('--rollout')
-  const workspaceCwd = flag('--cwd')
+    join(homeDir, 'praesidium', 'var', 'run', 'hrc', 'hrc.sock')
   const deadlineFlag = flag('--deadline-ms')
   const deadlineMs = deadlineFlag === undefined ? undefined : Number(deadlineFlag)
-  if (deadlineMs !== undefined && !(Number.isSafeInteger(deadlineMs) && deadlineMs > 0)) {
-    throw new Error(`--deadline-ms must be a positive integer, got ${deadlineFlag}`)
+  if (
+    args.includes('--deadline-ms') &&
+    !(Number.isSafeInteger(deadlineMs) && Number(deadlineMs) > 0)
+  ) {
+    throw new Error('--deadline-ms must be a positive integer')
   }
-  return {
-    ...(deadlineMs === undefined ? {} : { deadlineMs }),
-    threadId,
-    codexHome,
+  const input = {
+    deadlineMs,
     hrcSocketPath,
-    ...(rolloutPath === undefined ? {} : { rolloutPath }),
-    ...(workspaceCwd === undefined ? {} : { workspaceCwd }),
-    ...(flag('--sqlite-home') === undefined ? {} : { sqliteHome: flag('--sqlite-home') }),
-    ...(flag('--bundle-executable') === undefined
-      ? {}
-      : { reportedBundleExecutable: flag('--bundle-executable') }),
-    ...(flag('--source') === undefined ? {} : { hookSource: flag('--source') }),
+    hookSource: fromStdin.source ?? flag('--source'),
   }
+  const harness = flag('--harness') ?? (args.includes('--harness') ? '' : 'codex-desktop')
+  if (harness === 'claude-desktop') {
+    const sessionId = flag('--session')
+    if (!sessionId) throw new Error(DESKTOP_JOIN_USAGE)
+    const client = createClaudeDesktopJoinClient({
+      claudeHome: join(homeDir, '.claude'),
+      sessionId,
+      pid: Number(process.env['CLAUDE_PID']),
+    })
+    return { client, input }
+  }
+  const threadId = flag('--thread')
+  if (harness !== 'codex-desktop' || !threadId) throw new Error(DESKTOP_JOIN_USAGE)
+  const client = createCodexDesktopJoinClient({
+    threadId,
+    codexHome: flag('--codex-home') ?? process.env['CODEX_HOME'] ?? join(homeDir, '.codex'),
+    rolloutPath: flag('--rollout') ?? fromStdin.rolloutPath,
+    workspaceCwd: flag('--cwd') ?? fromStdin.workspaceCwd,
+    sqliteHome: flag('--sqlite-home'),
+    reportedBundleExecutable: flag('--bundle-executable'),
+  })
+  return { client, input }
 }
 
 export function readHookStdinIds(raw: string): {
@@ -143,24 +160,8 @@ export async function runDesktopJoinCli(args: string[]): Promise<void> {
     })
   }
   const fromStdin = stdin.trim().length > 0 ? readHookStdinIds(stdin) : {}
-  const fromArgs = parseDesktopJoinArgs(args)
-  const client = createCodexDesktopJoinClient({
-    ...fromArgs,
-    ...(fromStdin.threadId !== undefined && args.indexOf('--thread') === -1
-      ? { threadId: fromStdin.threadId }
-      : {}),
-    ...(fromStdin.rolloutPath !== undefined && args.indexOf('--rollout') === -1
-      ? { rolloutPath: fromStdin.rolloutPath }
-      : {}),
-    ...(fromStdin.workspaceCwd !== undefined && args.indexOf('--cwd') === -1
-      ? { workspaceCwd: fromStdin.workspaceCwd }
-      : {}),
-  })
-  const outcome = await runDesktopJoin(
-    client,
-    { ...fromArgs, hookSource: fromStdin.source ?? fromArgs.hookSource },
-    { lifecycle }
-  )
+  const { client, input } = parseDesktopJoinArgs(args, fromStdin)
+  const outcome = await runDesktopJoin(client, input, { lifecycle })
   // Not serving: give the door back and close a socket that never joined.
   lifecycle.release?.()
   await lifecycle.closeBroker?.().catch(() => {})

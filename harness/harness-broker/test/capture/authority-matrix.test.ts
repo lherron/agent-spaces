@@ -6,11 +6,13 @@ import { EVENT_FAMILY_BY_TYPE } from 'spaces-harness-broker-protocol'
 import { createPiSdkDriver } from '../../../harness-broker-pi-sdk/src/driver'
 import { PI_SDK_AUTHORITY } from '../../../harness-broker-pi-sdk/src/evidence-authority'
 import { createDefaultBroker } from '../../src/default-broker'
+import { createClaudeDesktopDriver } from '../../src/drivers/claude-desktop/driver'
 import { createDefaultCodexCliTmuxDriver } from '../../src/drivers/codex-cli-tmux/driver'
 import type { Driver } from '../../src/drivers/driver'
 import {
   ANTIGRAVITY_CLI_HRCPTY_AUTHORITY,
   ARRIS_RESIDENT_AUTHORITY,
+  BROKER_ONLY_AUTHORITY,
   CLAUDE_CODE_HRCPTY_AUTHORITY,
   CLAUDE_CODE_TMUX_AUTHORITY,
   CODEX_APP_SERVER_AUTHORITY,
@@ -42,6 +44,7 @@ const DECLARED: Record<string, Record<EventFamily, EvidenceAuthority>> = {
   'muse-serve': MUSE_SERVE_AUTHORITY,
   'muse-cli-tmux': MUSE_CLI_TMUX_AUTHORITY,
   'codex-desktop': CODEX_DESKTOP_AUTHORITY,
+  'claude-desktop': BROKER_ONLY_AUTHORITY,
   'arris-resident': ARRIS_RESIDENT_AUTHORITY,
   'pi-tui-tmux': PI_TUI_TMUX_AUTHORITY,
   'pi-sdk': PI_SDK_AUTHORITY,
@@ -156,6 +159,7 @@ describe('broker hello: driver evidence authority', () => {
     // a consumer sees, for every built-in driver plus the composed ones.
     const broker = createDefaultBroker(undefined, undefined, {
       additionalDrivers: [
+        () => createClaudeDesktopDriver('test-session'),
         () => createDefaultCodexCliTmuxDriver(),
         () => createDefaultPiTuiTmuxDriver(),
         // The SDK resolves the published broker type while this test imports the
