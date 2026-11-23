@@ -3,7 +3,7 @@
 //! Sources: harness/harness-broker/src/protocol-server.ts (framing, refusal
 //! order), contracts/harness-broker-protocol/src/jsonrpc.ts (message
 //! classification) and harness/aspc-facade/src/aspd.ts (`adviseAspdError`).
-use crate::json::J;
+use crate::json::{J, js_number, quoted};
 
 /// 16 MiB, excluding the LF delimiter (`ASPD_MAX_FRAME_BYTES`).
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -135,13 +135,19 @@ pub fn result_line(id: &J, result: &J) -> String {
     )
 }
 
-/// The three frame refusals Bun answers before parsing (`refuseFrame`).
-pub fn frame_refusal(reason: &str) -> String {
-    let message = match reason {
+/// The message of a frame refusal: `empty_frame`, `frame_too_large` or a
+/// parse error.
+pub fn frame_refusal_message(reason: &str) -> String {
+    match reason {
         "empty_frame" => "Empty NDJSON frame".to_owned(),
         "frame_too_large" => format!("NDJSON frame exceeds {MAX_FRAME_BYTES} bytes"),
         _ => "Parse error".to_owned(),
-    };
+    }
+}
+
+/// The three frame refusals Bun answers before parsing (`refuseFrame`).
+pub fn frame_refusal(reason: &str) -> String {
+    let message = frame_refusal_message(reason);
     error_line(&J::Null, -32700, &message, vec![], reason, "unmatched")
 }
 
@@ -155,6 +161,52 @@ pub fn upstream_refusal(id: &J, method: &str, detail: &str) -> String {
         "upstream_unavailable",
         method,
     )
+}
+
+/// Every reply line, Bun's and raspd's, starts with this prefix, so a reply's
+/// id and body are found without parsing the (possibly large) body.
+const REPLY_PREFIX: &[u8] = br#"{"jsonrpc":"2.0","id":"#;
+
+/// Where the id token ends in `rest` (what follows `"id":`).
+fn id_token_end(rest: &[u8]) -> Option<usize> {
+    if rest.first() == Some(&b'"') {
+        let mut i = 1;
+        while i < rest.len() {
+            match rest[i] {
+                b'\\' => i += 2,
+                b'"' => return Some(i + 1),
+                _ => i += 1,
+            }
+        }
+        None
+    } else {
+        rest.iter().position(|b| *b == b',' || *b == b'}')
+    }
+}
+
+/// The id token of a reply line, keyed as `quoted`/`js_number` write an id.
+pub fn reply_id_key(line: &[u8]) -> Option<String> {
+    let rest = line.strip_prefix(REPLY_PREFIX)?;
+    let end = id_token_end(rest)?;
+    let token = rest.get(..end)?;
+    match serde_json::from_slice::<serde_json::Value>(token).ok()? {
+        serde_json::Value::String(s) => Some(quoted(&s)),
+        serde_json::Value::Number(n) => Some(js_number(n.as_f64()?)),
+        serde_json::Value::Null => Some("null".into()),
+        _ => None,
+    }
+}
+
+/// The byte length of a reply line's `result` or `error` value: Bun's
+/// `replyBytes`, without re-serializing a (possibly large) compile result.
+pub fn reply_body_bytes(line: &[u8]) -> Option<usize> {
+    let rest = line.strip_prefix(REPLY_PREFIX)?;
+    let id_end = id_token_end(rest)?;
+    let after = rest.get(id_end..)?;
+    let body = after
+        .strip_prefix(br#","result":"#)
+        .or_else(|| after.strip_prefix(br#","error":"#))?;
+    body.len().checked_sub(1)
 }
 
 /// What a reply means for the access log and metrics, as Bun's
@@ -277,5 +329,21 @@ mod tests {
         assert_eq!(reply(v).outcome, "b");
         let none = json!({ "ok": false });
         assert_eq!(reply(none).outcome, "unknown");
+    }
+
+    #[test]
+    fn reads_the_id_from_bun_reply_prefix() {
+        assert_eq!(
+            reply_id_key(br#"{"jsonrpc":"2.0","id":"a\"b","result":1}"#).as_deref(),
+            Some(r#""a\"b""#)
+        );
+        assert_eq!(
+            reply_id_key(br#"{"jsonrpc":"2.0","id":12,"result":1}"#).as_deref(),
+            Some("12")
+        );
+        assert_eq!(
+            reply_id_key(br#"{"jsonrpc":"2.0","id":null,"error":{}}"#).as_deref(),
+            Some("null")
+        );
     }
 }
