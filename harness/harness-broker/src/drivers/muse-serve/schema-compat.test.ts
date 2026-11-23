@@ -218,10 +218,19 @@ describe('gateMuseSchema', () => {
     expect(warnings[0]).not.toContain('does not classify')
   })
 
-  test('an absent served fingerprint refuses', async () => {
-    await expect(gateMuseSchema(undefined, async () => v141)).rejects.toThrow(
-      'carries no schema fingerprint'
-    )
+  test('an absent fingerprint (Muse 1.4.25) still gates on the structural check', async () => {
+    let exports = 0
+    const outcome = await gateMuseSchema(undefined, async () => {
+      exports += 1
+      return { fingerprint: undefined, schema: v141.schema }
+    })
+    expect(exports).toBe(1)
+    expect(outcome.kind).toBe('compatible-drift')
+    const broken = structuredClone(v141.schema) as Record<string, unknown>
+    Reflect.deleteProperty(broken['methods'] as object, 'turn/start')
+    await expect(
+      gateMuseSchema(undefined, async () => ({ fingerprint: undefined, schema: broken }))
+    ).rejects.toThrow('incompatible with the driver')
   })
 
   test('a malformed export refuses', async () => {

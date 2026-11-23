@@ -384,31 +384,41 @@ export async function gateMuseSchema(
   loadExport: () => Promise<MuseSchemaExport>,
   lastVerified: MuseVerifiedSchema = MUSE_LAST_VERIFIED_SCHEMA
 ): Promise<MuseSchemaGateOutcome> {
-  if (servedFingerprint === undefined) {
-    throw new Error('muse-serve initialize result carries no schema fingerprint')
+  // The fingerprint only short-circuits a schema already verified. Muse 1.4.25
+  // stopped serving and exporting one, so its absence falls through to the
+  // structural check over the export, which is the gate that matters.
+  if (servedFingerprint !== undefined && servedFingerprint === lastVerified.fingerprint) {
+    return { kind: 'last-verified' }
   }
-  if (servedFingerprint === lastVerified.fingerprint) return { kind: 'last-verified' }
+  const label =
+    servedFingerprint !== undefined ? `schema ${servedFingerprint}` : 'an unfingerprinted schema'
   let exported: MuseSchemaExport
   try {
     exported = await loadExport()
   } catch (error) {
     throw new Error(
-      `muse-serve cannot verify schema ${servedFingerprint}: ${error instanceof Error ? error.message : String(error)}`
+      `muse-serve cannot verify ${label}: ${error instanceof Error ? error.message : String(error)}`
     )
   }
-  if (exported.fingerprint !== servedFingerprint) {
+  if (
+    servedFingerprint !== undefined &&
+    exported.fingerprint !== undefined &&
+    exported.fingerprint !== servedFingerprint
+  ) {
     throw new Error(
-      `muse-serve schema export fingerprint ${exported.fingerprint ?? 'absent'} does not match the served ${servedFingerprint}`
+      `muse-serve schema export fingerprint ${exported.fingerprint} does not match the served ${servedFingerprint}`
     )
   }
   const refusals = checkMuseSchemaCompatibility(exported.schema)
   if (refusals.length > 0) {
-    throw new Error(
-      `muse-serve schema ${servedFingerprint} is incompatible with the driver: ${refusals.join('; ')}`
-    )
+    throw new Error(`muse-serve ${label} is incompatible with the driver: ${refusals.join('; ')}`)
   }
   return {
     kind: 'compatible-drift',
-    warning: describeMuseSchemaDrift(exported.schema, servedFingerprint, lastVerified),
+    warning: describeMuseSchemaDrift(
+      exported.schema,
+      servedFingerprint ?? exported.fingerprint ?? 'unfingerprinted',
+      lastVerified
+    ),
   }
 }
