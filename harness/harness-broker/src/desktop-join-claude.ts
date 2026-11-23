@@ -30,7 +30,7 @@ export function createClaudeDesktopJoinClient(input: {
     statePaths: () => desktopStatePaths(claudeHome, sessionId),
     adapter,
     scopeRefs: (projectId) => [desktopScopeRef(AGENT_ID, projectId, `claude-${sessionId}`)],
-    createDriver: () => createClaudeDesktopDriver(sessionId),
+    createDriver: () => createClaudeDesktopDriver({ sessionId, claudeHome }),
     async admit() {
       if (pid === undefined || !Number.isSafeInteger(pid) || pid < 2) {
         return { admitted: false, reason: 'claude_desktop_pid_missing_or_invalid' }

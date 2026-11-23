@@ -176,6 +176,23 @@ export const CODEX_DESKTOP_AUTHORITY: EvidenceAuthorityMatrix = {
   usage: 'native',
 }
 
+/**
+ * Claude Desktop session observed from its transcript (T-14465). The session
+ * JSONL owns the turn bracket as well as content, tools and usage: hooks are
+ * only wake-ups, so a turn opens on its `turnOrigin` user row and closes on
+ * its `stop_hook_summary` row (or the next opening row). Queue rows own the
+ * absorbed mid-turn messages. Diagnostics stay broker: the observer's health
+ * notices are broker facts.
+ */
+export const CLAUDE_DESKTOP_AUTHORITY: EvidenceAuthorityMatrix = {
+  ...BROKER_OWNED_BASE,
+  'submission-disposition': 'native',
+  'turn-bracket': 'native',
+  conversation: 'native',
+  tool: 'native',
+  usage: 'native',
+}
+
 /** Arris resident host journal and control receipts own native execution facts. */
 export const ARRIS_RESIDENT_AUTHORITY: EvidenceAuthorityMatrix = {
   ...BROKER_OWNED_BASE,

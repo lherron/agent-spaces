@@ -106,12 +106,12 @@ records the same mistake once, under "Unknown HOOK names" below.
 | `harness-lifecycle` | hook | hook | hook | hook | broker | broker | broker | broker | broker | hook | broker | broker |
 | `continuation` | hook | hook | hook | hook | native | native | native | broker | native | hook | native | broker |
 | `input-admission` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
-| `submission-disposition` | **native** | **native** | broker | broker † | broker † | broker † | broker † | broker † | native | broker † | broker † | broker |
-| `turn-bracket` | hook | hook | hook | hook | native | native | native | native | native | hook ‡ | **broker** ‡ | broker |
+| `submission-disposition` | **native** | **native** | broker | broker † | broker † | broker † | broker † | broker † | native | broker † | broker † | native |
+| `turn-bracket` | hook | hook | hook | hook | native | native | native | native | native | hook ‡ | **broker** ‡ | native |
 | `turn-supervision` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
-| `conversation` | **native** | **native** | native | **native** | native | native | native | native | native | hook | native | broker |
-| `tool` | **native** | **native** | hook | hook | native | native | native | native | native | hook | native | broker |
-| `usage` | native | native | native | native † | native | native | native | native | native | hook † | native | broker |
+| `conversation` | **native** | **native** | native | **native** | native | native | native | native | native | hook | native | native |
+| `tool` | **native** | **native** | hook | hook | native | native | native | native | native | hook | native | native |
+| `usage` | native | native | native | native † | native | native | native | native | native | hook † | native | native |
 | `permission` | hook | hook | hook | hook | native | native | broker | broker | native | hook | native | broker |
 | `diagnostic` | hook | hook | broker | broker | native | native | native | broker | native | broker | broker | broker |
 | `terminal-surface` | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker | broker |
@@ -263,8 +263,17 @@ ended; no desktop lifecycle operation is implemented by this driver.
 
 ### claude-desktop
 
-The participant join driver emits broker lifecycle evidence. Claude Desktop turn,
-conversation, and tool evidence are outside the join driver.
+The session transcript (`~/.claude/projects/<cwd>/<sessionId>.jsonl`) owns
+everything the driver observes, including the turn bracket. A turn opens on its
+`turnOrigin` user row and closes on the `system` `stop_hook_summary` row the
+desktop app's own Stop callbacks always produce, or on the next opening row when
+no terminal row was written (an API-error turn). Hooks reach the broker only as
+hints on `~/.claude/hrc-desktop/<sessionId>/hook.sock`: they are committed as
+`state-only` hook records and trigger a read, and mint nothing, so a lost hook
+loses no turn. Queue rows own absorbed mid-turn messages. A restarted broker
+replays the transcript from byte zero with publishing muted up to just past the
+last row it journaled. Diagnostics stay broker: the observer's health notices
+are broker facts.
 
 ### pi-sdk
 
