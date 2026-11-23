@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import {
   type DesktopJoinLog,
-  type DesktopThreadPaths,
+  type DesktopStatePaths,
   processAlive,
   readJoinFile,
 } from './desktop-join-thread.js'
@@ -55,7 +55,7 @@ function holderIsOurJoiner(pid: number, threadId: string): boolean {
  * dead claim cannot both win by overwriting each other.
  */
 export function claimBrokerPid(
-  paths: DesktopThreadPaths,
+  paths: DesktopStatePaths,
   threadId: string,
   staleAfterMs: number,
   log: DesktopJoinLog

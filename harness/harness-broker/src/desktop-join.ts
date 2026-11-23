@@ -1,20 +1,17 @@
 import { mkdirSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
-import {
-  type CodexDesktopParticipantPreparation,
-  createCodexDesktopParticipantAdapter,
-} from 'agent-spaces'
+import type { JoinPrepareInput } from 'spaces-hrc-join-client'
+import type { ParticipantAdapter } from 'spaces-runtime-contracts'
 import { claimBrokerPid, releaseBrokerPid } from './desktop-join-pid-claim.js'
 import { chooseScopeAndJoin } from './desktop-join-scope.js'
 import {
   type DesktopJoinLog,
+  type DesktopStatePaths,
   priorCandidateScope,
   priorRespawn,
   probeBrokerSocket,
   readPriorJoin,
   reapStaleSiblingSockets,
-  threadPaths,
   writeJoinCandidate,
   writeJoinLog,
   writeJoinedRecords,
@@ -25,18 +22,11 @@ import {
   readRegistryWithLastGood,
   resolveDesktopProject,
 } from './desktop-project.js'
+import type { Driver } from './drivers/driver.js'
 import { assertSocketPathWithinBudget } from './socket-path.js'
 import { serveUnixBroker } from './unix-broker.js'
 
 export type DesktopJoinInput = {
-  threadId: string
-  codexHome: string
-  rolloutPath?: string | undefined
-  workspaceCwd?: string | undefined
-  fallbackHomeDir?: string | undefined
-  sqliteHome?: string | undefined
-  reportedBundleExecutable?: string | undefined
-  operatorBundleExecutable?: string | undefined
   hrcSocketPath: string
   hookSource?: string | undefined
   projectRoot?: string | undefined
@@ -46,69 +36,26 @@ export type DesktopJoinInput = {
   deadlineMs?: number | undefined
 }
 
-export type DesktopAdmission =
+type DesktopAdmission =
   | {
       admitted: true
-      preparation: CodexDesktopParticipantPreparation
+      preparation: JoinPrepareInput['preparation']
       participantKey: string
       workspaceCwd: string
       homeIdentity: string
     }
-  | { admitted: false; reason: string; detail?: string | undefined }
+  | { admitted: false; reason: string }
 
-export async function admitDesktopThread(input: {
-  threadId: string
-  codexHome: string
-  rolloutPath?: string | undefined
-  workspaceCwd?: string | undefined
-  fallbackHomeDir?: string | undefined
-  sqliteHome?: string | undefined
-  reportedBundleExecutable?: string | undefined
-  operatorBundleExecutable?: string | undefined
-  projectRoot?: string | undefined
-  nativeAttemptStorePath?: string | undefined
-}): Promise<DesktopAdmission> {
-  const adapter = createCodexDesktopParticipantAdapter()
-  const admission = await adapter.admit({
-    classId: 'codex-desktop',
-    join: 'participant-served',
-    evidence: {
-      schema: 'codex-desktop.participant-evidence/1',
-      nativeThreadId: input.threadId,
-      reported: {
-        ...(input.codexHome === undefined ? {} : { codexHome: input.codexHome }),
-        ...(input.sqliteHome === undefined ? {} : { sqliteHome: input.sqliteHome }),
-        ...(input.rolloutPath === undefined ? {} : { rolloutPath: input.rolloutPath }),
-      },
-      fallbackHomeDir: input.fallbackHomeDir ?? process.env['HOME'] ?? tmpdir(),
-      ...(input.workspaceCwd === undefined ? {} : { reportedWorkspaceCwd: input.workspaceCwd }),
-      ...(input.reportedBundleExecutable === undefined
-        ? {}
-        : { reportedBundleExecutable: input.reportedBundleExecutable }),
-      ...(input.operatorBundleExecutable === undefined
-        ? {}
-        : { operatorBundleExecutable: input.operatorBundleExecutable }),
-      projectRoot: input.projectRoot ?? input.workspaceCwd ?? process.cwd(),
-      nativeAttemptStorePath:
-        input.nativeAttemptStorePath ??
-        join(input.codexHome, 'hrc-desktop', input.threadId, 'native-attempts.db'),
-    },
-  })
-  if (admission.status !== 'admitted') {
-    const reason =
-      admission.status === 'pending' || admission.status === 'rejected'
-        ? admission.reason
-        : 'unknown'
-    return { admitted: false, reason }
-  }
-  const preparation = admission.preparation as unknown as CodexDesktopParticipantPreparation
-  return {
-    admitted: true,
-    preparation,
-    participantKey: admission.participantKey,
-    workspaceCwd: admission.workspaceCwd,
-    homeIdentity: preparation.homeIdentity,
-  }
+export type DesktopJoinClient = {
+  sessionId: string
+  classId: string
+  agentId: string
+  cacheIdentity: Record<string, string>
+  statePaths(): DesktopStatePaths
+  adapter: ParticipantAdapter
+  scopeRefs(projectId: string): Iterable<string>
+  createDriver(): Driver
+  admit(paths: DesktopStatePaths): Promise<DesktopAdmission>
 }
 
 export type DesktopJoinOutcome =
@@ -159,7 +106,6 @@ export const DEFAULT_JOIN_DEADLINE_MS = 60_000
  * and a pid reused by an unrelated process.
  */
 export const STALLED_HOLDER_GRACE_MS = 15_000
-const REGISTRY_CACHE_FILE = 'hrc-desktop-registry.json'
 const MAX_BACKOFF_MS = 5_000
 
 function backoffMs(attempt: number): number {
@@ -212,11 +158,12 @@ async function retryWithinDeadline<T>(
  * broker.pid so the next hook can try (T-09977).
  */
 export async function runDesktopJoin(
+  client: DesktopJoinClient,
   input: DesktopJoinInput,
   deps: DesktopJoinDeps = {}
 ): Promise<DesktopJoinOutcome> {
   const startedAt = Date.now()
-  const paths = threadPaths(input.codexHome, input.threadId)
+  const paths = client.statePaths()
   const log: DesktopJoinLog = (event, detail) => writeJoinLog(paths.joinLog, event, detail)
   const lifecycle: JoinLifecycle = deps.lifecycle ?? { phase: 'starting' }
   lifecycle.log = log
@@ -256,30 +203,15 @@ export async function runDesktopJoin(
 
   try {
     lifecycle.phase = 'admitting'
-    const admission = await admitDesktopThread({
-      threadId: input.threadId,
-      codexHome: input.codexHome,
-      ...(input.rolloutPath === undefined ? {} : { rolloutPath: input.rolloutPath }),
-      ...(input.workspaceCwd === undefined ? {} : { workspaceCwd: input.workspaceCwd }),
-      ...(input.fallbackHomeDir === undefined ? {} : { fallbackHomeDir: input.fallbackHomeDir }),
-      ...(input.sqliteHome === undefined ? {} : { sqliteHome: input.sqliteHome }),
-      ...(input.reportedBundleExecutable === undefined
-        ? {}
-        : { reportedBundleExecutable: input.reportedBundleExecutable }),
-      ...(input.operatorBundleExecutable === undefined
-        ? {}
-        : { operatorBundleExecutable: input.operatorBundleExecutable }),
-      ...(input.projectRoot === undefined ? {} : { projectRoot: input.projectRoot }),
-      nativeAttemptStorePath: join(paths.threadDir, 'native-attempts.db'),
-    })
+    const admission = await client.admit(paths)
     if (!admission.admitted) {
       log('not-admitted', { reason: admission.reason, source: input.hookSource ?? 'unknown' })
       return { exit: 0, reason: `not-admitted:${admission.reason}` }
     }
 
     lifecycle.phase = 'claiming'
-    mkdirSync(paths.threadDir, { recursive: true, mode: 0o700 })
-    const claim = claimBrokerPid(paths, input.threadId, deadlineMs + STALLED_HOLDER_GRACE_MS, log)
+    mkdirSync(paths.stateDir, { recursive: true, mode: 0o700 })
+    const claim = claimBrokerPid(paths, client.sessionId, deadlineMs + STALLED_HOLDER_GRACE_MS, log)
     if (!claim.claimed) {
       log(claim.event, claim.detail)
       return { exit: 0, reason: claim.event }
@@ -296,7 +228,7 @@ export async function runDesktopJoin(
           }),
     })
 
-    const reaped = reapStaleSiblingSockets(paths.threadDir)
+    const reaped = reapStaleSiblingSockets(paths.stateDir)
     if (reaped.length > 0) {
       log('reaped-stale-sockets', { sockets: reaped })
     }
@@ -328,7 +260,7 @@ export async function runDesktopJoin(
           'registry-unavailable',
           async () => {
             const registry = await readRegistryWithLastGood(
-              join(input.codexHome, REGISTRY_CACHE_FILE),
+              paths.registryCacheFile,
               Math.min(registryTimeoutMs, Math.max(1, remainingMs())),
               log
             )
@@ -349,8 +281,8 @@ export async function runDesktopJoin(
       return { exit: 0, reason: `no-project:${project.reason}` }
     }
 
-    const hostIncarnationId = desktopHostIncarnationId(admission.homeIdentity, input.threadId)
-    const socketPath = join(paths.threadDir, `broker-${process.pid}.sock`)
+    const hostIncarnationId = desktopHostIncarnationId(admission.homeIdentity, client.sessionId)
+    const socketPath = join(paths.stateDir, `broker-${process.pid}.sock`)
     try {
       assertSocketPathWithinBudget(socketPath)
     } catch (error) {
@@ -364,12 +296,13 @@ export async function runDesktopJoin(
       const served = await serve({
         socketPath,
         cliOptions: {},
+        desktopDriver: client.createDriver,
         participantBootstrap: true,
         // HRC's controller reattach replays events (eventsSince) and acks them;
         // without a durable ledger both throw EventReplayUnavailable and the
         // runtime never leaves starting. The ledger lives in the thread dir so
         // a respawn replays rather than re-emits pre-kill turns.
-        ledgerPath: join(paths.threadDir, 'event-ledger.sqlite'),
+        ledgerPath: join(paths.stateDir, 'event-ledger.sqlite'),
         onServerError: (error) => {
           writeJoinLog(paths.joinLog, 'server-error', { message: error.message })
         },
@@ -402,29 +335,14 @@ export async function runDesktopJoin(
           return {
             value: await chooseScopeAndJoin({
               hrcSocketPath: input.hrcSocketPath,
-              projectId: project.bound.projectId,
+              scopeRefs: client.scopeRefs(project.bound.projectId),
               hostIncarnationId,
               socketPath,
-              classId: 'codex-desktop',
+              classId: client.classId,
+              adapter: client.adapter,
               participantKey: admission.participantKey,
               workspaceCwd: admission.workspaceCwd,
-              preparation: {
-                schema: 'codex-desktop.participant-preparation/1',
-                nativeThreadId: input.threadId,
-                homeIdentity: admission.homeIdentity,
-                sqliteHome: admission.preparation.sqliteHome,
-                registrationKey: admission.preparation.registrationKey,
-                rolloutPath: admission.preparation.rolloutPath,
-                workspaceCwd: admission.workspaceCwd,
-                ...(admission.preparation.reportedBundleExecutable === undefined
-                  ? {}
-                  : { reportedBundleExecutable: admission.preparation.reportedBundleExecutable }),
-                ...(admission.preparation.operatorBundleExecutable === undefined
-                  ? {}
-                  : { operatorBundleExecutable: admission.preparation.operatorBundleExecutable }),
-                projectRoot: admission.preparation.projectRoot,
-                nativeAttemptStorePath: join(paths.threadDir, 'native-attempts.db'),
-              },
+              preparation: admission.preparation,
               ...(respawn === undefined ? {} : respawn),
               ...(resumeFromScope === undefined ? {} : { resumeFromScope }),
               onCandidateScope: writeCandidate,
@@ -459,7 +377,8 @@ export async function runDesktopJoin(
       },
       {
         projectId: project.bound.projectId,
-        threadId: input.threadId,
+        agentId: client.agentId,
+        identity: client.cacheIdentity,
         projectRoot: admission.workspaceCwd,
       }
     )

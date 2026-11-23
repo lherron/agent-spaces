@@ -210,8 +210,11 @@ describe('desktop-join retired slots', () => {
 
 describe('desktop-join write-ahead resume', () => {
   test('runDesktopJoin resumes a registering write-ahead instead of restarting at nova', async () => {
-    const { runDesktopJoin, admitDesktopThread } = await import('../src/desktop-join.js')
-    const { threadPaths } = await import('../src/desktop-join-thread.js')
+    const { runDesktopJoin } = await import('../src/desktop-join.js')
+    const { admitDesktopThread, createCodexDesktopJoinClient } = await import(
+      '../src/desktop-join-codex.js'
+    )
+    const { desktopStatePaths } = await import('../src/desktop-join-thread.js')
     const { desktopHostIncarnationId } = await import('../src/desktop-project.js')
     const dir = await mkdtemp('/tmp/djr-')
     const codexHome = join(dir, 'codex-home')
@@ -246,8 +249,8 @@ describe('desktop-join write-ahead resume', () => {
     })
     if (!admission.admitted) throw new Error('fixture was not admitted')
     const incarnation = desktopHostIncarnationId(admission.homeIdentity, threadId)
-    const paths = threadPaths(codexHome, threadId)
-    mkdirSync(paths.threadDir, { recursive: true, mode: 0o700 })
+    const paths = desktopStatePaths(codexHome, threadId)
+    mkdirSync(paths.stateDir, { recursive: true, mode: 0o700 })
     const HELD = 'agent:stella:project:demo:task:primary-comet'
     await writeFile(
       paths.joinFile,
@@ -299,26 +302,24 @@ describe('desktop-join write-ahead resume', () => {
     })
     try {
       let servedWith: Record<string, unknown> | undefined
-      const outcome = await runDesktopJoin(
-        {
-          threadId,
-          codexHome,
-          rolloutPath,
-          hrcSocketPath: sock,
-          projectRoot: join(dir, 'workspace'),
-          reportedBundleExecutable: bundle,
-        },
-        {
-          serve: (async (options: Record<string, unknown>) => {
-            servedWith = options
-            return { broker: {}, socketPath: 'x', close: async () => {} }
-          }) as never,
-          blockForever: (async () => {}) as never,
-        }
-      )
+      const input = {
+        threadId,
+        codexHome,
+        rolloutPath,
+        hrcSocketPath: sock,
+        projectRoot: join(dir, 'workspace'),
+        reportedBundleExecutable: bundle,
+      }
+      const outcome = await runDesktopJoin(createCodexDesktopJoinClient(input), input, {
+        serve: (async (options: Record<string, unknown>) => {
+          servedWith = options
+          return { broker: {}, socketPath: 'x', close: async () => {} }
+        }) as never,
+        blockForever: (async () => {}) as never,
+      })
       expect(servedWith?.['participantBootstrap']).toBe(true)
       expect(String(servedWith?.['ledgerPath'] ?? '')).toBe(
-        join(paths.threadDir, 'event-ledger.sqlite')
+        join(paths.stateDir, 'event-ledger.sqlite')
       )
       expect(seen[0]).toBe(HELD)
       expect(outcome).toMatchObject({ exit: 0 })
@@ -344,14 +345,14 @@ describe('desktop-join write-ahead resume', () => {
 describe('desktop-join stale socket reap', () => {
   test('runDesktopJoin reaps only dead-pid broker sockets at startup and keeps live sockets and other files', async () => {
     const fixture = await desktopJoinFixture()
-    mkdirSync(fixture.paths.threadDir, { recursive: true, mode: 0o700 })
-    const dead = join(fixture.paths.threadDir, 'broker-999999918.sock')
+    mkdirSync(fixture.paths.stateDir, { recursive: true, mode: 0o700 })
+    const dead = join(fixture.paths.stateDir, 'broker-999999918.sock')
     // Hold a separate live process for the duration of the join.
     const child = spawn('sleep', ['30'])
     if (child.pid === undefined) throw new Error('failed to start live process fixture')
-    const live = join(fixture.paths.threadDir, `broker-${child.pid}.sock`)
-    const notASocket = join(fixture.paths.threadDir, 'broker-999999917.json')
-    const nonNumeric = join(fixture.paths.threadDir, 'broker-abc.sock')
+    const live = join(fixture.paths.stateDir, `broker-${child.pid}.sock`)
+    const notASocket = join(fixture.paths.stateDir, 'broker-999999917.json')
+    const nonNumeric = join(fixture.paths.stateDir, 'broker-abc.sock')
     try {
       for (const path of [dead, live, notASocket, nonNumeric]) await writeFile(path, '')
 

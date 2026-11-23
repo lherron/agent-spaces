@@ -1,4 +1,3 @@
-import { createCodexDesktopParticipantAdapter } from 'agent-spaces'
 import {
   type JoinPrepareInput,
   attachParticipant,
@@ -10,16 +9,11 @@ import {
   registerParticipant,
 } from 'spaces-hrc-join-client'
 import type { ParticipantAdapter } from 'spaces-runtime-contracts'
-import {
-  DESKTOP_AGENT_ID,
-  DESKTOP_LANE_REF,
-  desktopScopeRef,
-  desktopSlotTokenSequence,
-} from './desktop-project.js'
+import { DESKTOP_LANE_REF } from './desktop-project.js'
 
 export type ScopeJoinInput = {
   hrcSocketPath: string
-  projectId: string
+  scopeRefs: Iterable<string>
   hostIncarnationId: string
   socketPath: string
   classId: string
@@ -30,8 +24,7 @@ export type ScopeJoinInput = {
     | { hostIncarnationId: string; runtimeId: string; generation: number }
     | undefined
   scopeRef?: string | undefined
-  adapter?: ParticipantAdapter | undefined
-  maxSlots?: number | undefined
+  adapter: ParticipantAdapter
   resumeFromScope?: string | undefined
   onCandidateScope?: ((scopeRef: string) => void) | undefined
   /** Bound on each HRC register/attach exchange; a timeout throws like any transport failure. */
@@ -79,11 +72,9 @@ function heldScopeFromIncarnationRefusal(detail: string): string | undefined {
  * (from a write-ahead join.json, component 3(v)) is tried before the sequence.
  */
 export async function chooseScopeAndJoin(input: ScopeJoinInput): Promise<ScopeJoinOutcome> {
-  const adapter = input.adapter ?? createCodexDesktopParticipantAdapter()
-  const slots: Iterator<string> =
-    input.scopeRef !== undefined
-      ? scopeRefsForPinned(input.scopeRef)
-      : scopeRefsFor(input.projectId, input.maxSlots)
+  const slots = (input.scopeRef === undefined ? input.scopeRefs : [input.scopeRef])[
+    Symbol.iterator
+  ]()
   const tried = new Set<string>()
   const queue: string[] =
     input.resumeFromScope !== undefined && input.scopeRef === undefined
@@ -174,7 +165,7 @@ export async function chooseScopeAndJoin(input: ScopeJoinInput): Promise<ScopeJo
         detail: register.detail,
       }
     }
-    const prepared = await adapter.prepare({
+    const prepared = await input.adapter.prepare({
       classId: input.classId,
       join: 'participant-served',
       participantKey: input.participantKey,
@@ -224,17 +215,4 @@ export async function chooseScopeAndJoin(input: ScopeJoinInput): Promise<ScopeJo
     }
   }
   return { exit: 'scope-exhausted', detail: `examined ${examined} slots without a join` }
-}
-
-function* scopeRefsForPinned(scopeRef: string): Generator<string, void, void> {
-  yield scopeRef
-}
-
-function* scopeRefsFor(projectId: string, maxSlots?: number): Generator<string, void, void> {
-  let count = 0
-  for (const slot of desktopSlotTokenSequence()) {
-    yield desktopScopeRef(DESKTOP_AGENT_ID, projectId, slot)
-    count += 1
-    if (maxSlots !== undefined && count >= maxSlots) break
-  }
 }

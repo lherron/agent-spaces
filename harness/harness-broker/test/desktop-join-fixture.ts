@@ -9,11 +9,15 @@ import { mkdirSync, readFileSync } from 'node:fs'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type DesktopThreadPaths, threadPaths } from '../src/desktop-join-thread.js'
+import {
+  type CodexDesktopJoinInput,
+  admitDesktopThread,
+  createCodexDesktopJoinClient,
+} from '../src/desktop-join-codex.js'
+import { type DesktopStatePaths, desktopStatePaths } from '../src/desktop-join-thread.js'
 import {
   type DesktopJoinInput,
   type DesktopJoinOutcome,
-  admitDesktopThread,
   runDesktopJoin,
 } from '../src/desktop-join.js'
 import { desktopHostIncarnationId } from '../src/desktop-project.js'
@@ -50,7 +54,7 @@ export type DesktopJoinFixture = {
   rolloutPath: string
   bundle: string
   workspace: string
-  paths: DesktopThreadPaths
+  paths: DesktopStatePaths
 }
 
 /**
@@ -90,7 +94,7 @@ export async function desktopJoinFixture(
     rolloutPath,
     bundle,
     workspace,
-    paths: threadPaths(codexHome, THREAD_ID),
+    paths: desktopStatePaths(codexHome, THREAD_ID),
   }
 }
 
@@ -115,7 +119,7 @@ export async function seedJoinFile(
   fixture: DesktopJoinFixture,
   record: Record<string, unknown>
 ): Promise<void> {
-  mkdirSync(fixture.paths.threadDir, { recursive: true, mode: 0o700 })
+  mkdirSync(fixture.paths.stateDir, { recursive: true, mode: 0o700 })
   await writeFile(fixture.paths.joinFile, JSON.stringify(record))
 }
 
@@ -186,7 +190,7 @@ export type DesktopJoinRun = {
 export async function runJoin(
   fixture: DesktopJoinFixture,
   register: (scopeRef: string, body: any) => StubReply,
-  overrides: Partial<DesktopJoinInput> = {}
+  overrides: Partial<DesktopJoinInput & CodexDesktopJoinInput> = {}
 ): Promise<DesktopJoinRun> {
   const requests: StubRequest[] = []
   const seen: string[] = []
@@ -199,25 +203,23 @@ export async function runJoin(
   })
   let served: Record<string, unknown> | undefined
   try {
-    const outcome = await runDesktopJoin(
-      {
-        threadId: THREAD_ID,
-        codexHome: fixture.codexHome,
-        rolloutPath: fixture.rolloutPath,
-        hrcSocketPath: sock,
-        projectRoot: fixture.workspace,
-        reportedBundleExecutable: fixture.bundle,
-        ...overrides,
-      },
-      {
-        serve: (async (options: Record<string, unknown>) => {
-          served = options
-          return { broker: {}, socketPath: 'x', close: async () => {} }
-        }) as never,
-        blockForever: (async () => {}) as never,
-        onDeadline: () => {},
-      }
-    )
+    const input = {
+      threadId: THREAD_ID,
+      codexHome: fixture.codexHome,
+      rolloutPath: fixture.rolloutPath,
+      hrcSocketPath: sock,
+      projectRoot: fixture.workspace,
+      reportedBundleExecutable: fixture.bundle,
+      ...overrides,
+    }
+    const outcome = await runDesktopJoin(createCodexDesktopJoinClient(input), input, {
+      serve: (async (options: Record<string, unknown>) => {
+        served = options
+        return { broker: {}, socketPath: 'x', close: async () => {} }
+      }) as never,
+      blockForever: (async () => {}) as never,
+      onDeadline: () => {},
+    })
     return { outcome, registered: seen, requests, served }
   } finally {
     stop()

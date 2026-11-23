@@ -15,6 +15,7 @@ import type { Broker, BrokerAttachIdentity } from './broker'
 import { registerBrokerMethods, registerValidatedMethods } from './broker-methods'
 import type { RunBrokerCliOptions } from './cli'
 import { createDefaultBroker } from './default-broker'
+import type { Driver } from './drivers/driver'
 import { BrokerError } from './errors'
 import { createEventLedger } from './event-ledger'
 import { type BrokerObserverSocket, startBrokerObserverSocket } from './observer-socket'
@@ -35,6 +36,7 @@ export type ServeUnixBrokerOptions = {
   observerSocketPath?: string | undefined
   observerMode?: string | undefined
   participantBootstrap: boolean
+  desktopDriver?: (() => Driver) | undefined
   attachIdentity?: BrokerAttachIdentity | undefined
   onServerError?: ((error: Error) => void) | undefined
 }
@@ -62,6 +64,7 @@ export async function serveUnixBroker(
     observerSocketPath,
     observerMode = 'observe',
     participantBootstrap,
+    desktopDriver,
     attachIdentity,
     onServerError,
   } = serveOptions
@@ -130,6 +133,7 @@ export async function serveUnixBroker(
       // sockets under it (never the global tmpdir socket two runtimes share).
       hookIpcDir: join(dirname(socketPath), 'hooks'),
       additionalDrivers: options.additionalDrivers,
+      desktopDriver,
       releaseIdentity: options.releaseIdentity,
       rendererLauncher: options.rendererLauncher,
       codexTuiLauncher: options.codexTuiLauncher,

@@ -21,6 +21,7 @@ import type { EventLedger } from './event-ledger'
 import type { TmuxHelperLauncher } from './runtime/tmux-launch-exec'
 
 export interface DefaultBrokerOptions {
+  desktopDriver?: (() => Driver) | undefined
   additionalDrivers?: Array<() => Driver> | undefined
   advertisedTransports?: BrokerTransportKind[] | undefined
   advertiseAttachReplay?: boolean | undefined
@@ -90,7 +91,7 @@ export function createDefaultBroker(
           ? { codexTuiLauncher: options.codexTuiLauncher }
           : {}),
       }),
-      createCodexDesktopDriver(),
+      (options.desktopDriver ?? createCodexDesktopDriver)(),
       createMuseServeDriver(),
       createDefaultMuseCliTmuxDriver(options.hookIpcDir, options.tmuxHelperLauncher),
       createArrisResidentDriver(),

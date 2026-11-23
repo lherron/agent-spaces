@@ -9,7 +9,7 @@ import {
 import { connect } from 'node:net'
 import { dirname, join } from 'node:path'
 import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protocol'
-import { DESKTOP_AGENT_ID, DESKTOP_LANE_REF } from './desktop-project.js'
+import { DESKTOP_LANE_REF } from './desktop-project.js'
 
 /**
  * Per-thread desktop-join state on disk: the thread dir, its join.log, the
@@ -18,22 +18,24 @@ import { DESKTOP_AGENT_ID, DESKTOP_LANE_REF } from './desktop-project.js'
  */
 export type DesktopJoinLog = (event: string, detail: Record<string, unknown>) => void
 
-export type DesktopThreadPaths = {
-  threadDir: string
+export type DesktopStatePaths = {
+  stateDir: string
   joinLog: string
   pidFile: string
   joinFile: string
   scopeCacheFile: string
+  registryCacheFile: string
 }
 
-export function threadPaths(codexHome: string, threadId: string): DesktopThreadPaths {
-  const threadDir = join(codexHome, 'hrc-desktop', threadId)
+export function desktopStatePaths(clientHome: string, sessionId: string): DesktopStatePaths {
+  const stateDir = join(clientHome, 'hrc-desktop', sessionId)
   return {
-    threadDir,
-    joinLog: join(threadDir, 'join.log'),
-    pidFile: join(threadDir, 'broker.pid'),
-    joinFile: join(threadDir, 'join.json'),
-    scopeCacheFile: join(codexHome, 'hrc-desktop-scopes', `${threadId}.json`),
+    stateDir,
+    joinLog: join(stateDir, 'join.log'),
+    pidFile: join(stateDir, 'broker.pid'),
+    joinFile: join(stateDir, 'join.json'),
+    scopeCacheFile: join(clientHome, 'hrc-desktop-scopes', `${sessionId}.json`),
+    registryCacheFile: join(clientHome, 'hrc-desktop-registry.json'),
   }
 }
 
@@ -251,9 +253,14 @@ export type JoinedRecord = {
  * plus the parsed agent/project/slot identity it injects.
  */
 export function writeJoinedRecords(
-  paths: DesktopThreadPaths,
+  paths: DesktopStatePaths,
   joined: JoinedRecord,
-  scope: { projectId: string; threadId: string; projectRoot: string }
+  scope: {
+    projectId: string
+    agentId: string
+    identity: Record<string, string>
+    projectRoot: string
+  }
 ): void {
   writeJsonRecord(paths.joinFile, {
     phase: 'joined',
@@ -274,13 +281,13 @@ export function writeJoinedRecords(
   mkdirSync(dirname(paths.scopeCacheFile), { recursive: true, mode: 0o700 })
   writeJsonRecord(paths.scopeCacheFile, {
     scopeRef: joined.scopeRef,
-    agentId: DESKTOP_AGENT_ID,
+    agentId: scope.agentId,
     projectId: scope.projectId,
     slotToken,
     laneRef: DESKTOP_LANE_REF,
     registrationId: joined.registrationId,
     hostIncarnationId: joined.hostIncarnationId,
-    threadId: scope.threadId,
+    ...scope.identity,
     projectRoot: scope.projectRoot,
     updatedAt: new Date().toISOString(),
   })

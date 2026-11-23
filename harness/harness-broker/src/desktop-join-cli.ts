@@ -1,5 +1,6 @@
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { type CodexDesktopJoinInput, createCodexDesktopJoinClient } from './desktop-join-codex.js'
 import {
   type DesktopJoinInput,
   type JoinLifecycle,
@@ -10,7 +11,7 @@ import {
 const DESKTOP_JOIN_USAGE =
   'Usage: harness-broker desktop-join --thread <id> [--rollout <path> --cwd <dir> --codex-home <dir> --hrc-socket <path> --source <hook> --deadline-ms <ms>]'
 
-export function parseDesktopJoinArgs(args: string[]): DesktopJoinInput {
+export function parseDesktopJoinArgs(args: string[]): DesktopJoinInput & CodexDesktopJoinInput {
   const flag = (name: string): string | undefined => {
     const index = args.indexOf(name)
     return index === -1 ? undefined : args[index + 1]
@@ -143,20 +144,21 @@ export async function runDesktopJoinCli(args: string[]): Promise<void> {
   }
   const fromStdin = stdin.trim().length > 0 ? readHookStdinIds(stdin) : {}
   const fromArgs = parseDesktopJoinArgs(args)
+  const client = createCodexDesktopJoinClient({
+    ...fromArgs,
+    ...(fromStdin.threadId !== undefined && args.indexOf('--thread') === -1
+      ? { threadId: fromStdin.threadId }
+      : {}),
+    ...(fromStdin.rolloutPath !== undefined && args.indexOf('--rollout') === -1
+      ? { rolloutPath: fromStdin.rolloutPath }
+      : {}),
+    ...(fromStdin.workspaceCwd !== undefined && args.indexOf('--cwd') === -1
+      ? { workspaceCwd: fromStdin.workspaceCwd }
+      : {}),
+  })
   const outcome = await runDesktopJoin(
-    {
-      ...fromArgs,
-      ...(fromStdin.threadId !== undefined && args.indexOf('--thread') === -1
-        ? { threadId: fromStdin.threadId }
-        : {}),
-      ...(fromStdin.rolloutPath !== undefined && args.indexOf('--rollout') === -1
-        ? { rolloutPath: fromStdin.rolloutPath }
-        : {}),
-      ...(fromStdin.workspaceCwd !== undefined && args.indexOf('--cwd') === -1
-        ? { workspaceCwd: fromStdin.workspaceCwd }
-        : {}),
-      ...(fromStdin.source !== undefined ? { hookSource: fromStdin.source } : {}),
-    },
+    client,
+    { ...fromArgs, hookSource: fromStdin.source ?? fromArgs.hookSource },
     { lifecycle }
   )
   // Not serving: give the door back and close a socket that never joined.
