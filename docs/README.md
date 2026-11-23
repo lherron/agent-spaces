@@ -21,6 +21,7 @@ own the normative contracts.
 - [aspd](aspd.md) — Namespaced compile service, release selection, and activation readback.
 - [Standalone ASP releases](standalone-asp-releases.md) — Build, install, and inspect immutable release artifacts.
 - [Codex Desktop self-join](codex-desktop-join.md) — Desktop registration, address discovery, and mail delivery operation.
+- [Claude Desktop self-join](claude-desktop-join.md) — Vega hook overlay, join reports, and log paths.
 - [Agent hygiene](agent-hygiene/README.md) — Price resident prompt context with token-rent before remediation.
 - [Agent-hygiene lint rules](agent-hygiene/lint-rules.md) — Advisory W4xx rules, severities, and cache-admission scope.
 - [Agent resource parity verifier implementation](../integration-tests/bin/verify-agent-resource-parity.ts) — Compare direct-loader and compatibility-compiler prompts and skills with `just verify-agent-resource-parity`.

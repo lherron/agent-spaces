@@ -176,6 +176,10 @@ check-harness-selection-matrix:
 overlay-codex *args:
     bun scripts/sync-agent-to-codex-default.ts --install-hooks --apply {{args}}
 
+# Install the gated Vega Claude Desktop hooks beside existing user hooks.
+overlay-claude *args:
+    bun scripts/overlay-claude.ts {{args}}
+
 # Regenerate spaces/agent-spaces-manager and the embedded `asp repo init` copy
 # from the canonical <agents-root>/spaces/agent-spaces-manager (T-10369).
 
