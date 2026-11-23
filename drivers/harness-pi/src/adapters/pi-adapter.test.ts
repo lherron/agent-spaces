@@ -1631,8 +1631,9 @@ export function util() {
       await bundleExtension(srcPath, outPath, { format: 'cjs' })
 
       const content = await Bun.file(outPath).text()
-      // CJS format should have module.exports or exports
-      expect(content).toBeDefined()
+      // The default format is ESM; cjs must emit module.exports and no ESM export statement.
+      expect(content).toContain('module.exports')
+      expect(content).not.toMatch(/^export\s/m)
     })
 
     test('throws PiBundleError for invalid code', async () => {

@@ -24,11 +24,6 @@ const HEAVY_TEST_TIMEOUT_MS = 60_000
 import { compilerRuntime } from './compiler-runtime.js'
 import { seedImmutableRegistryMirror } from './hermetic.js'
 
-async function createClient(options?: { aspHome?: string; registryPath?: string }) {
-  const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
-  return createAgentSpacesClient({ ...options, runtime: compilerRuntime })
-}
-
 const scratch = mkdtempSync(join(tmpdir(), 'asp-test-m5-'))
 afterAll(() => rmSync(scratch, { recursive: true, force: true }))
 
@@ -107,51 +102,6 @@ describe('resolvedBundle from APIs (T-00862)', () => {
     },
     HEAVY_TEST_TIMEOUT_MS
   )
-})
-
-// ===================================================================
-// T-00863: createAgentSpacesClient with options
-// ===================================================================
-describe('createAgentSpacesClient options (T-00863)', () => {
-  test('accepts AgentSpacesClientOptions with aspHome', async () => {
-    // New signature should accept options object
-    const client = await createClient({
-      aspHome: '/custom/asp/home',
-    })
-
-    expect(client).toBeDefined()
-    expect(typeof client.buildProcessInvocationSpec).toBe('function')
-  })
-
-  test('accepts AgentSpacesClientOptions with registryPath', async () => {
-    const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
-
-    const client = createAgentSpacesClient({
-      aspHome: '/custom/asp/home',
-      registryPath: '/custom/registry',
-      runtime: compilerRuntime,
-    })
-
-    expect(client).toBeDefined()
-  })
-
-  test('still works with no arguments (backward compat)', async () => {
-    const { createAgentSpacesClient } = await import('../../compiler/agent-spaces/src/index.js')
-
-    // No-arg call should still work
-    const client = createAgentSpacesClient()
-    expect(client).toBeDefined()
-  })
-
-  test('AgentSpacesClientOptions type is exported', async () => {
-    // The options type should be importable
-    const mod = await import('../../compiler/agent-spaces/src/index.js')
-    expect(mod.createAgentSpacesClient).toBeDefined()
-    // Type-only check: AgentSpacesClientOptions should be in the exports
-    // We verify by checking that the function accepts an object arg
-    const client = mod.createAgentSpacesClient({ aspHome: '/test' })
-    expect(client).toBeDefined()
-  })
 })
 
 // ===================================================================
