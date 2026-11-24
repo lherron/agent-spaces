@@ -31,6 +31,12 @@ from `$HOME/.claude`, so set `HOME` to the scratch home when driving the copy.
 - UserPromptSubmit, Stop and Notification send best-effort hints over
   `~/.claude/hrc-desktop/<sessionId>/hook.sock` when it exists. The hook
   exits successfully even when a hint fails or the broker is unavailable.
+- SessionStart adds a shell snippet to Claude's `CLAUDE_ENV_FILE`. Each
+  Bash tool call uses that snippet to source the joiner's private
+  `caller-env.sh` in the session state directory once the broker registers.
+  The snippet supplies the joined runtime and Vega seat to `prae` and
+  `asp self inspect` while the broker PID is alive. Open a fresh Desktop
+  tab after installing the overlay so Claude loads the snippet at startup.
 
 ## Check a session
 

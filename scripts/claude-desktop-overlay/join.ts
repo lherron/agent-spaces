@@ -4,6 +4,10 @@ import { connect } from 'node:net'
 import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import {
+  claudeDesktopProjectId,
+  installClaudeCallerEnvSource,
+} from '../../harness/harness-broker/src/desktop-join-claude-env'
+import {
   readRegistryWithLastGood,
   resolveDesktopProjectSync,
 } from '../../harness/harness-broker/src/desktop-project'
@@ -85,10 +89,8 @@ function startJoiner(stateDir: string, sessionId: string, pid: string, hook: str
 function registeredAddress(stateDir: string, sessionId: string): string | undefined {
   const record = readJson(join(stateDir, 'join.json'))
   if (record?.['phase'] !== 'joined' || !isLivePid(record['pid'])) return undefined
-  const scope = record['scopeRef']
-  if (typeof scope !== 'string') return undefined
-  const match = /^agent:vega:project:([^:]+):task:(.+)$/.exec(scope)
-  if (match?.[2] === `claude-${sessionId}`) return `vega@${match[1]}:${match[2]}`
+  const projectId = claudeDesktopProjectId(record['scopeRef'], sessionId)
+  if (projectId) return `vega@${projectId}:claude-${sessionId}`
 }
 
 async function joinReport(stateDir: string, sessionId: string, cwd: string): Promise<string> {
@@ -186,6 +188,14 @@ async function run() {
     }
     if (hook === 'UserPromptSubmit') emitRegisteredReport(stateDir, sessionId)
     if (hook === 'SessionStart') {
+      const envFile = process.env['CLAUDE_ENV_FILE']
+      if (envFile) {
+        try {
+          installClaudeCallerEnvSource(envFile, stateDir)
+        } catch {
+          log(stateDir, 'caller-env-source-error', hook)
+        }
+      }
       let instructions = ''
       try {
         instructions = readFileSync(

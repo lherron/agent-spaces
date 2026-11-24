@@ -7,6 +7,7 @@ import { chooseScopeAndJoin } from './desktop-join-scope.js'
 import {
   type DesktopJoinLog,
   type DesktopStatePaths,
+  type JoinedRecord,
   priorCandidateScope,
   priorRespawn,
   probeBrokerSocket,
@@ -57,6 +58,7 @@ export type DesktopJoinClient = {
   scopeRefs(projectId: string): Iterable<string>
   createDriver(): Driver
   admit(paths: DesktopStatePaths): Promise<DesktopAdmission>
+  onJoined?(paths: DesktopStatePaths, joined: JoinedRecord): Promise<void>
 }
 
 export type DesktopJoinOutcome =
@@ -373,27 +375,29 @@ export async function runDesktopJoin(
       return { exit: 0, reason: `join-${outcome.exit}` }
     }
 
-    writeJoinedRecords(
-      paths,
-      {
-        registrationId: outcome.registrationId,
-        attemptId: outcome.attemptId,
-        attachEpoch: outcome.attachEpoch,
-        hostIncarnationId,
-        runtimeId: outcome.runtimeId,
-        generation: outcome.generation,
-        scopeRef: outcome.scopeRef,
-        socketPath,
-      },
-      {
-        projectId: project.bound.projectId,
-        agentId: client.agentId,
-        identity: client.cacheIdentity,
-        projectRoot: admission.workspaceCwd,
-      }
-    )
+    const joined = {
+      registrationId: outcome.registrationId,
+      attemptId: outcome.attemptId,
+      attachEpoch: outcome.attachEpoch,
+      hostIncarnationId,
+      runtimeId: outcome.runtimeId,
+      generation: outcome.generation,
+      scopeRef: outcome.scopeRef,
+      socketPath,
+    }
+    writeJoinedRecords(paths, joined, {
+      projectId: project.bound.projectId,
+      agentId: client.agentId,
+      identity: client.cacheIdentity,
+      projectRoot: admission.workspaceCwd,
+    })
     lifecycle.phase = 'joined'
     clearTimeout(deadlineTimer)
+    try {
+      await client.onJoined?.(paths, joined)
+    } catch (error) {
+      log('post-join-setup-failed', { message: errorMessage(error) })
+    }
     log('joined', {
       scopeRef: outcome.scopeRef,
       registrationId: outcome.registrationId,

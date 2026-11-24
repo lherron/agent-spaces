@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createClaudeDesktopJoinClient } from '../src/desktop-join-claude.js'
 import { type JoinLifecycle, runDesktopJoin } from '../src/desktop-join.js'
@@ -54,6 +54,7 @@ test.each([
       expect(log).toContain('"event":"not-admitted"')
       expect(lifecycle.phase).toBe('admitting')
       expect(requests).toHaveLength(0)
+      expect(await Bun.file(join(stateDir, 'caller-env.sh')).exists()).toBe(false)
       return
     }
     const scopeRef = `agent:vega:project:${project}:task:claude-${sessionId}`
@@ -88,6 +89,35 @@ test.each([
       projectId: project,
       sessionId,
     })
+    const envFile = join(stateDir, 'caller-env.sh')
+    expect((await stat(envFile)).mode & 0o777).toBe(0o600)
+    const shell = Bun.spawnSync({
+      cmd: [
+        '/usr/bin/env',
+        '-i',
+        '/bin/sh',
+        '-c',
+        '. "$1"; /usr/bin/env',
+        'check-caller-env',
+        envFile,
+      ],
+    })
+    expect(shell.exitCode).toBe(0)
+    expect(shell.stderr.toString()).toBe('')
+    expect(
+      shell.stdout
+        .toString()
+        .split('\n')
+        .filter((entry) => /^(ASP|HRC)_/.test(entry))
+        .sort()
+    ).toEqual([
+      'ASP_AGENT_ID=vega',
+      `ASP_PROJECT=${project}`,
+      `ASP_SCOPE_REF=${scopeRef}`,
+      `ASP_TASK_ID=claude-${sessionId}`,
+      'HRC_RUNTIME_ID=rt_1',
+      `HRC_SESSION_REF=${scopeRef}/lane:main`,
+    ])
   } finally {
     lifecycle.release?.()
     await lifecycle.closeBroker?.()

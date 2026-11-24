@@ -4,6 +4,7 @@ import {
   CLAUDE_DESKTOP_PARTICIPANT_CLASS,
   createClaudeDesktopParticipantAdapter,
 } from 'agent-spaces'
+import { writeClaudeCallerEnv } from './desktop-join-claude-env.js'
 import { desktopStatePaths } from './desktop-join-thread.js'
 import type { DesktopJoinClient } from './desktop-join.js'
 import { desktopScopeRef } from './desktop-project.js'
@@ -31,6 +32,7 @@ export function createClaudeDesktopJoinClient(input: {
     adapter,
     scopeRefs: (projectId) => [desktopScopeRef(AGENT_ID, projectId, `claude-${sessionId}`)],
     createDriver: () => createClaudeDesktopDriver({ sessionId, claudeHome }),
+    onJoined: (paths, joined) => writeClaudeCallerEnv(paths.stateDir, sessionId, joined),
     async admit() {
       if (pid === undefined || !Number.isSafeInteger(pid) || pid < 2) {
         return { admitted: false, reason: 'claude_desktop_pid_missing_or_invalid' }

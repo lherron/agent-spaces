@@ -84,6 +84,45 @@ test('reports a live registration on the first prompt after join', () => {
   expect(prompt()).toBe('')
 })
 
+test('SessionStart adds a guard that reads the current caller env at Bash execution', () => {
+  overlay()
+  const sessionId = 'new-desktop-session'
+  const state = join(claude, 'hrc-desktop', sessionId)
+  const envFile = join(home, 'session-start.sh')
+  mkdirSync(state, { recursive: true })
+  writeFileSync(join(state, 'broker.pid'), String(process.pid))
+  writeFileSync(
+    join(claude, 'sessions', '31416.json'),
+    JSON.stringify({ entrypoint: 'claude-desktop', sessionId, cwd: home })
+  )
+  writeFileSync(
+    join(state, 'join.json'),
+    JSON.stringify({
+      phase: 'joined',
+      pid: process.pid,
+      scopeRef: `agent:vega:project:hrc-runtime:task:claude-${sessionId}`,
+    })
+  )
+  const hook = Bun.spawnSync({
+    cmd: [process.execPath, join(claude, 'hrc-desktop-hook', 'join.mjs'), '31416'],
+    env: { HOME: home, PATH: '/usr/bin:/bin', CLAUDE_ENV_FILE: envFile },
+    stdin: Buffer.from(JSON.stringify({ hook_event_name: 'SessionStart', session_id: sessionId })),
+  })
+  expect(hook.exitCode).toBe(0)
+  const setup = readFileSync(envFile, 'utf8')
+  function bashCall() {
+    const shell = Bun.spawnSync({
+      cmd: ['/bin/bash', '-ec', `${setup}\nprintf '%s' "\${HRC_RUNTIME_ID:-unjoined}"`],
+      env: {},
+    })
+    expect(shell.exitCode).toBe(0)
+    return shell.stdout.toString()
+  }
+  expect(bashCall()).toBe('unjoined')
+  writeFileSync(join(state, 'caller-env.sh'), 'export HRC_RUNTIME_ID=rt_joined\n')
+  expect(bashCall()).toBe('rt_joined')
+})
+
 describe.skipIf(process.platform !== 'darwin')('desktop shell gate', () => {
   function hookCommand(): string {
     return JSON.parse(readFileSync(join(claude, 'settings.json'), 'utf8')).hooks.SessionStart[0]
