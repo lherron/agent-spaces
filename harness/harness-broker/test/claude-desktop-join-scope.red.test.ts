@@ -90,6 +90,10 @@ test.each([
       sessionId,
     })
     const envFile = join(stateDir, 'caller-env.sh')
+    expect(JSON.parse(await readFile(join(stateDir, 'join.json'), 'utf8'))).toMatchObject({
+      scopeRef,
+      laneRef: 'main',
+    })
     expect((await stat(envFile)).mode & 0o777).toBe(0o600)
     const shell = Bun.spawnSync({
       cmd: [
@@ -108,9 +112,10 @@ test.each([
       shell.stdout
         .toString()
         .split('\n')
-        .filter((entry) => /^(ASP|HRC)_/.test(entry))
+        .filter((entry) => /^(AGENT|ASP|HRC)_/.test(entry))
         .sort()
     ).toEqual([
+      'AGENT_LANE=main',
       'ASP_AGENT_ID=vega',
       `ASP_PROJECT=${project}`,
       `ASP_SCOPE_REF=${scopeRef}`,

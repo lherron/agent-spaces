@@ -35,6 +35,7 @@ export type ScopeJoinOutcome =
   | {
       exit: 'joined'
       scopeRef: string
+      laneRef: string
       registrationId: string
       attemptId: string
       attachEpoch: number
@@ -206,6 +207,7 @@ export async function chooseScopeAndJoin(input: ScopeJoinInput): Promise<ScopeJo
     return {
       exit: 'joined',
       scopeRef: register.scopeRef,
+      laneRef: register.identity.laneRef,
       registrationId: register.identity.registrationId,
       attemptId: register.identity.attemptId,
       attachEpoch: register.identity.attachEpoch,

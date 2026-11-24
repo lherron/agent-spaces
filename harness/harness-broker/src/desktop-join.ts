@@ -519,6 +519,7 @@ export async function runDesktopJoin(
       runtimeId: outcome.runtimeId,
       generation: outcome.generation,
       scopeRef: outcome.scopeRef,
+      laneRef: outcome.laneRef,
       socketPath,
     }
     writeJoinedRecords(paths, joined, {

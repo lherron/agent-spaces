@@ -9,7 +9,6 @@ import {
 import { connect } from 'node:net'
 import { dirname, join } from 'node:path'
 import { SUPPORTED_BROKER_PROTOCOL_VERSIONS } from 'spaces-harness-broker-protocol'
-import { DESKTOP_LANE_REF } from './desktop-project.js'
 
 /**
  * Per-thread desktop-join state on disk: the thread dir, its join.log, the
@@ -288,6 +287,7 @@ export type JoinedRecord = {
   runtimeId: string
   generation: number
   scopeRef: string
+  laneRef: string
   socketPath: string
 }
 
@@ -316,6 +316,7 @@ export function writeJoinedRecords(
     runtimeId: joined.runtimeId,
     generation: joined.generation,
     scopeRef: joined.scopeRef,
+    laneRef: joined.laneRef,
     socketPath: joined.socketPath,
     brokerInstanceId: `broker_${process.pid}`,
     pid: process.pid,
@@ -329,7 +330,7 @@ export function writeJoinedRecords(
     agentId: scope.agentId,
     projectId: scope.projectId,
     slotToken,
-    laneRef: DESKTOP_LANE_REF,
+    laneRef: joined.laneRef,
     registrationId: joined.registrationId,
     hostIncarnationId: joined.hostIncarnationId,
     ...scope.identity,

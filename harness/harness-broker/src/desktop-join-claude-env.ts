@@ -2,7 +2,6 @@ import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { atomicWrite } from 'spaces-config/core'
 import type { JoinedRecord } from './desktop-join-thread.js'
-import { DESKTOP_LANE_REF } from './desktop-project.js'
 import { shellQuote } from './runtime/shell-quote.js'
 
 const callerEnvFile = 'caller-env.sh'
@@ -25,9 +24,13 @@ export async function writeClaudeCallerEnv(
   joined: JoinedRecord
 ): Promise<void> {
   const projectId = claudeDesktopProjectId(joined.scopeRef, sessionId)
-  if (!projectId || !joined.runtimeId) throw new Error('Incomplete Claude Desktop join identity')
+  const lane = joined.laneRef.replace(/^lane:/, '')
+  if (!projectId || !joined.runtimeId || !lane) {
+    throw new Error('Incomplete Claude Desktop join identity')
+  }
   const env = {
-    HRC_SESSION_REF: `${joined.scopeRef}/lane:${DESKTOP_LANE_REF}`,
+    AGENT_LANE: lane,
+    HRC_SESSION_REF: `${joined.scopeRef}/lane:${lane}`,
     HRC_RUNTIME_ID: joined.runtimeId,
     ASP_AGENT_ID: 'vega',
     ASP_PROJECT: projectId,
