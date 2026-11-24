@@ -1,5 +1,5 @@
-import { mkdirSync } from 'node:fs'
-import { basename, join, resolve } from 'node:path'
+import { appendFileSync, mkdirSync, rmSync } from 'node:fs'
+import { basename, dirname, join, resolve } from 'node:path'
 import type { JoinPrepareInput } from 'spaces-hrc-join-client'
 import type { ParticipantAdapter } from 'spaces-runtime-contracts'
 import { claimBrokerPid, releaseBrokerPid } from './desktop-join-pid-claim.js'
@@ -11,8 +11,10 @@ import {
   priorCandidateScope,
   priorRespawn,
   probeBrokerSocket,
+  readEndedRecord,
   readPriorJoin,
   reapStaleSiblingSockets,
+  writeEndedRecord,
   writeJoinCandidate,
   writeJoinLog,
   writeJoinedRecords,
@@ -56,9 +58,22 @@ export type DesktopJoinClient = {
   statePaths(): DesktopStatePaths
   adapter: ParticipantAdapter
   scopeRefs(projectId: string): Iterable<string>
-  createDriver(): Driver
+  createDriver(session: DesktopSessionHooks): Driver
   admit(paths: DesktopStatePaths): Promise<DesktopAdmission>
   onJoined?(paths: DesktopStatePaths, joined: JoinedRecord): Promise<void>
+}
+
+/** A driver that watches its own session reports the session's end here (T-14467). */
+export type DesktopSessionEnd = {
+  reason: string
+  detail: Record<string, unknown>
+  invocationId: string
+  /** The `invocation.exited` seq; HRC has recorded the exit once its ack reaches it. */
+  exitedSeq: number
+}
+
+export type DesktopSessionHooks = {
+  sessionEnded(end: DesktopSessionEnd): void
 }
 
 export type DesktopJoinOutcome =
@@ -74,6 +89,7 @@ export type JoinPhase =
   | 'serving-socket'
   | 'registering'
   | 'joined'
+  | 'ending'
 
 /**
  * Process-level join state, shared with the CLI's termination logging so an
@@ -94,6 +110,10 @@ export type DesktopJoinDeps = {
   lifecycle?: JoinLifecycle | undefined
   /** Called when the join deadline fires before `joined`. Defaults to releasing and exiting 0. */
   onDeadline?: (() => void) | undefined
+  /** Ends the process after a session-end teardown; defaults to `process.exit`. */
+  exit?: ((code: number) => void) | undefined
+  /** How long a session end waits for HRC to ack `invocation.exited`. */
+  exitAckTimeoutMs?: number | undefined
 }
 
 /**
@@ -110,6 +130,52 @@ export const DEFAULT_JOIN_DEADLINE_MS = 60_000
  */
 export const STALLED_HOLDER_GRACE_MS = 15_000
 const MAX_BACKOFF_MS = 5_000
+/**
+ * How long a session end waits for HRC's ack of `invocation.exited`. A
+ * detached HRC that reattaches inside it replays the event and acks.
+ */
+export const DEFAULT_EXIT_ACK_TIMEOUT_MS = 60_000
+/**
+ * HRC acks an event once it is projected, then marks the runtime terminated.
+ * Keep the transport open this long after the ack so that mark is not raced
+ * by HRC seeing the transport close.
+ */
+const EXIT_SETTLE_MS = 1_000
+
+/** Highest acked seq per invocation, with waiters for a seq to be reached. */
+function ackTracker() {
+  const acked = new Map<string, number>()
+  const waiters = new Set<{ invocationId: string; seq: number; resolve: () => void }>()
+  return {
+    note({ invocationId, ackedThroughSeq }: { invocationId: string; ackedThroughSeq: number }) {
+      acked.set(invocationId, Math.max(acked.get(invocationId) ?? 0, ackedThroughSeq))
+      for (const waiter of waiters) {
+        if (waiter.invocationId === invocationId && ackedThroughSeq >= waiter.seq) {
+          waiters.delete(waiter)
+          waiter.resolve()
+        }
+      }
+    },
+    reached(invocationId: string, seq: number, timeoutMs: number): Promise<boolean> {
+      if ((acked.get(invocationId) ?? 0) >= seq) return Promise.resolve(true)
+      return new Promise((resolveReached) => {
+        const waiter = {
+          invocationId,
+          seq,
+          resolve: () => {
+            clearTimeout(timer)
+            resolveReached(true)
+          },
+        }
+        const timer = setTimeout(() => {
+          waiters.delete(waiter)
+          resolveReached(false)
+        }, timeoutMs)
+        waiters.add(waiter)
+      })
+    },
+  }
+}
 
 function backoffMs(attempt: number): number {
   return Math.min(MAX_BACKOFF_MS, 500 * 2 ** (attempt - 1))
@@ -204,6 +270,72 @@ export async function runDesktopJoin(
       .then(() => process.exit(0))
   }, deadlineMs)
 
+  const acks = ackTracker()
+  let ending: Promise<void> | undefined
+  /**
+   * The session ended (T-14467): the driver has emitted `invocation.exited`.
+   * Once HRC acks it, HRC has recorded the exit and this session's state is
+   * removed. Without an ack the state stays for the joining hook's sweep.
+   * Either way broker.pid is released and the process exits.
+   */
+  const endSession = async (end: DesktopSessionEnd): Promise<void> => {
+    lifecycle.phase = 'ending'
+    clearTimeout(deadlineTimer)
+    log('session-ended', {
+      reason: end.reason,
+      ...end.detail,
+      invocationId: end.invocationId,
+      exitedSeq: end.exitedSeq,
+    })
+    const ackTimeoutMs = deps.exitAckTimeoutMs ?? DEFAULT_EXIT_ACK_TIMEOUT_MS
+    const recorded = await acks.reached(end.invocationId, end.exitedSeq, ackTimeoutMs)
+    if (recorded) await sleep(EXIT_SETTLE_MS)
+    log(recorded ? 'exit-recorded' : 'exit-unacknowledged', {
+      exitedSeq: end.exitedSeq,
+      ...(recorded ? {} : { ackTimeoutMs }),
+    })
+    await lifecycle.closeBroker?.().catch(() => {})
+    lifecycle.release?.()
+    const keptBinding = recorded && writeEndedRecord(paths)
+    if (recorded) {
+      try {
+        rmSync(paths.stateDir, { recursive: true, force: true })
+        rmSync(paths.scopeCacheFile, { force: true })
+      } catch {}
+      // Every later join.log line (the CLI's `exit`) would recreate the dir.
+      lifecycle.log = () => {}
+    }
+    // join.log went with the state dir: one line survives it.
+    try {
+      const endedLog = join(dirname(dirname(paths.stateDir)), 'hrc-desktop-ended.log')
+      appendFileSync(
+        endedLog,
+        `${JSON.stringify({
+          at: new Date().toISOString(),
+          pid: process.pid,
+          sessionId: client.sessionId,
+          reason: end.reason,
+          invocationId: end.invocationId,
+          exitedSeq: end.exitedSeq,
+          recorded,
+          stateRemoved: recorded,
+          keptBinding,
+        })}\n`,
+        { mode: 0o600 }
+      )
+    } catch {}
+    ;(deps.exit ?? process.exit)(0)
+  }
+  const sessionHooks: DesktopSessionHooks = {
+    sessionEnded(end) {
+      ending ??= endSession(end).catch((error) => {
+        log('session-end-failed', { message: errorMessage(error) })
+        lifecycle.release?.()
+        ;(deps.exit ?? process.exit)(0)
+      })
+    },
+  }
+
   try {
     lifecycle.phase = 'admitting'
     const admission = await client.admit(paths)
@@ -236,7 +368,10 @@ export async function runDesktopJoin(
       log('reaped-stale-sockets', { sockets: reaped })
     }
 
-    const prior = readPriorJoin(paths.joinFile)
+    // A session resumed after a clean end has no join.json, only its ended record.
+    const priorJoin = readPriorJoin(paths.joinFile)
+    const resumedFromEnded = priorJoin === undefined ? readEndedRecord(paths.endedFile) : undefined
+    const prior = priorJoin ?? resumedFromEnded
     if (prior?.livePid !== undefined) {
       log('already-serving', { holderPid: prior.livePid, via: 'join.json' })
       return { exit: 0, reason: 'already-serving' }
@@ -308,8 +443,9 @@ export async function runDesktopJoin(
       const served = await serve({
         socketPath,
         cliOptions: {},
-        desktopDriver: client.createDriver,
+        desktopDriver: () => client.createDriver(sessionHooks),
         participantBootstrap: true,
+        onEventsAcked: acks.note,
         // HRC's controller reattach replays events (eventsSince) and acks them;
         // without a durable ledger both throw EventReplayUnavailable and the
         // runtime never leaves starting. The ledger lives in the thread dir so
@@ -391,7 +527,8 @@ export async function runDesktopJoin(
       identity: client.cacheIdentity,
       projectRoot: admission.workspaceCwd,
     })
-    lifecycle.phase = 'joined'
+    if (resumedFromEnded !== undefined) rmSync(paths.endedFile, { force: true })
+    if (ending === undefined) lifecycle.phase = 'joined'
     clearTimeout(deadlineTimer)
     try {
       await client.onJoined?.(paths, joined)
@@ -403,6 +540,7 @@ export async function runDesktopJoin(
       registrationId: outcome.registrationId,
       attachEpoch: outcome.attachEpoch,
       respawn: respawn !== undefined,
+      ...(resumedFromEnded !== undefined ? { fromEndedRecord: true } : {}),
       elapsedMs: Date.now() - startedAt,
     })
   } finally {

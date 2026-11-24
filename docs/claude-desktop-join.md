@@ -65,6 +65,34 @@ sender, so these lines identify the real sender and the submission.
   so, it blocks the turn's end with HRC's reason. Every failure allows the turn
   to end. This gate only enforces replies and never delivers mail.
 
+## Session end
+
+Archiving a Desktop session fires no SessionEnd hook, so the broker watches
+the session itself. Every 2 s it checks the claude pid from the admitted
+registry row. The session has ended when the pid is gone, when its
+`~/.claude/sessions/<pid>.json` row is gone or names another session, or
+when `ps -o lstart` (C locale, UTC) differs from the row's `procStart`,
+which means the pid was reused. A row caught mid-write gives no verdict.
+
+- The broker publishes what the transcript still holds, then emits
+  `driver.notice` `CLAUDE_DESKTOP_SESSION_ENDED` and `invocation.exited`.
+  HRC records the runtime `terminated` with `external_participant_exit`.
+- Once HRC acks the exit, the joiner moves the binding to
+  `~/.claude/hrc-desktop-ended/<sessionId>.json`, removes the state
+  directory and scope cache, releases `broker.pid`, adds one line to
+  `~/.claude/hrc-desktop-ended.log` and exits. Without an ack within 60 s, it
+  leaves the state in place and exits.
+- A reopened app can resume the same session under a new pid. Its joiner
+  reads the ended record and registers as the replacement
+  (`expectedPredecessor`), because HRC refuses a fresh attach for a binding
+  whose broker is gone (`participant_established_endpoint_dead`).
+- SIGTERM ends only the broker. HRC detaches the runtime
+  (`broker_transport_closed`), and the session's next hook respawns it.
+- SessionStart and UserPromptSubmit sweep `~/.claude/hrc-desktop/*/` for
+  sessions with no live registry row and no live broker, and remove that
+  state. They also prune ended records older than 30 days whose session is
+  not live. An unreadable registry row skips the sweep.
+
 ## Check a session
 
 Read `~/.claude/hrc-desktop/<sessionId>/hook.log` for typed hook events and

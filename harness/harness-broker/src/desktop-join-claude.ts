@@ -31,7 +31,15 @@ export function createClaudeDesktopJoinClient(input: {
     statePaths: () => desktopStatePaths(claudeHome, sessionId),
     adapter,
     scopeRefs: (projectId) => [desktopScopeRef(AGENT_ID, projectId, `claude-${sessionId}`)],
-    createDriver: () => createClaudeDesktopDriver({ sessionId, claudeHome }),
+    createDriver: (session) =>
+      createClaudeDesktopDriver({
+        sessionId,
+        claudeHome,
+        // The admitted pid: its registry row named this session at admission.
+        ...(pid !== undefined && Number.isSafeInteger(pid) && pid > 1
+          ? { sessionWatch: { pid, onEnded: (end) => session.sessionEnded(end) } }
+          : {}),
+      }),
     onJoined: (paths, joined) => writeClaudeCallerEnv(paths.stateDir, sessionId, joined),
     async admit() {
       if (pid === undefined || !Number.isSafeInteger(pid) || pid < 2) {

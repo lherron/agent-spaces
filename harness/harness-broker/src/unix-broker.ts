@@ -39,6 +39,8 @@ export type ServeUnixBrokerOptions = {
   desktopDriver?: (() => Driver) | undefined
   attachIdentity?: BrokerAttachIdentity | undefined
   onServerError?: ((error: Error) => void) | undefined
+  /** After the attached controller's ack commits: it has recorded events through this seq. */
+  onEventsAcked?: ((ack: { invocationId: string; ackedThroughSeq: number }) => void) | undefined
 }
 
 export type ServedUnixBroker = {
@@ -67,6 +69,7 @@ export async function serveUnixBroker(
     desktopDriver,
     attachIdentity,
     onServerError,
+    onEventsAcked,
   } = serveOptions
   if (observerSocketPath !== undefined && observerMode !== 'observe') {
     throw new Error(
@@ -201,7 +204,9 @@ export async function serveUnixBroker(
         { controllerInstanceId: params.controllerInstanceId }
       )
     }
-    return broker.ackEvents(params)
+    const acked = await broker.ackEvents(params)
+    onEventsAcked?.({ invocationId: params.invocationId, ackedThroughSeq: acked.ackedThroughSeq })
+    return acked
   }
 
   function registerDurabilityMethods(server: ProtocolServer, socket: Socket): void {

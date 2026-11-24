@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -82,6 +91,87 @@ test('reports a live registration on the first prompt after join', () => {
     },
   })
   expect(prompt()).toBe('')
+})
+
+test('a joining hook sweeps the state of ended sessions and keeps every live one', () => {
+  overlay()
+  const deadPid = Bun.spawnSync({ cmd: ['/usr/bin/true'] }).pid
+  const current = 'current-session'
+  const stateRoot = join(claude, 'hrc-desktop')
+  const scopes = join(claude, 'hrc-desktop-scopes')
+  mkdirSync(scopes, { recursive: true })
+  function session(sessionId: string, options: { rowPid?: number; brokerPid?: number }) {
+    const state = join(stateRoot, sessionId)
+    mkdirSync(state, { recursive: true })
+    writeFileSync(join(state, 'join.json'), JSON.stringify({ phase: 'joined', pid: deadPid }))
+    writeFileSync(join(scopes, `${sessionId}.json`), '{}')
+    if (options.brokerPid !== undefined) {
+      writeFileSync(join(state, 'broker.pid'), String(options.brokerPid))
+    }
+    if (options.rowPid !== undefined) {
+      writeFileSync(
+        join(claude, 'sessions', `${options.rowPid === deadPid ? 77777 : options.rowPid}.json`),
+        JSON.stringify({ pid: options.rowPid, sessionId, entrypoint: 'claude-desktop', cwd: home })
+      )
+    }
+    return state
+  }
+  // The hook's own session: its row's pid is the hook's argv, its broker alive.
+  writeFileSync(
+    join(claude, 'sessions', '31416.json'),
+    JSON.stringify({ entrypoint: 'claude-desktop', sessionId: current, cwd: home })
+  )
+  const currentState = session(current, { brokerPid: process.pid })
+  const live = session('live-session', { rowPid: process.pid })
+  const archivedWithBroker = session('archived-broker-alive', { brokerPid: process.pid })
+  const archived = session('archived-session', { brokerPid: deadPid })
+  const crashed = session('crashed-session', { rowPid: deadPid })
+
+  function prompt() {
+    const result = Bun.spawnSync({
+      cmd: [process.execPath, join(claude, 'hrc-desktop-hook', 'join.mjs'), '31416'],
+      env: { HOME: home, PATH: '/usr/bin:/bin' },
+      stdin: Buffer.from(
+        JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: current })
+      ),
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.stderr.toString()).toBe('')
+  }
+
+  // Ended records: a resumed session's binding, aged out after 30 days unless live.
+  const endedRoot = join(claude, 'hrc-desktop-ended')
+  mkdirSync(endedRoot, { recursive: true })
+  const monthAgo = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000)
+  for (const name of ['old-ended', 'young-ended', 'live-session']) {
+    writeFileSync(join(endedRoot, `${name}.json`), '{"phase":"ended"}')
+    if (name !== 'young-ended') utimesSync(join(endedRoot, `${name}.json`), monthAgo, monthAgo)
+  }
+
+  // A registry row caught mid-write: nothing is swept this time.
+  writeFileSync(join(claude, 'sessions', '55555.json'), '{"pid":')
+  prompt()
+  expect(existsSync(archived)).toBe(true)
+  expect(existsSync(crashed)).toBe(true)
+
+  rmSync(join(claude, 'sessions', '55555.json'))
+  prompt()
+  expect(existsSync(currentState)).toBe(true)
+  expect(existsSync(live)).toBe(true)
+  expect(existsSync(archivedWithBroker)).toBe(true)
+  expect(existsSync(archived)).toBe(false)
+  expect(existsSync(crashed)).toBe(false)
+  expect(existsSync(join(scopes, 'archived-session.json'))).toBe(false)
+  expect(existsSync(join(scopes, 'live-session.json'))).toBe(true)
+  expect(existsSync(join(endedRoot, 'old-ended.json'))).toBe(false)
+  expect(existsSync(join(endedRoot, 'young-ended.json'))).toBe(true)
+  expect(existsSync(join(endedRoot, 'live-session.json'))).toBe(true)
+  const swept = readFileSync(join(claude, 'hrc-desktop-ended.log'), 'utf8')
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line).sessionId)
+    .sort()
+  expect(swept).toEqual(['archived-session', 'crashed-session'])
 })
 
 test('SessionStart adds a guard that reads the current caller env at Bash execution', () => {

@@ -1,5 +1,14 @@
 import { spawn } from 'node:child_process'
-import { appendFileSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { connect } from 'node:net'
 import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
@@ -17,6 +26,8 @@ const userHome = homedir()
 const claudeHome = join(userHome, '.claude')
 const platformRoot = join(userHome, 'praesidium', 'var')
 const hintTimeoutMs = 2_000
+/** An ended session's binding waits this long for the app to resume the session. */
+const endedRecordMaxAgeMs = 30 * 24 * 60 * 60 * 1000
 
 function readJson(path: string): Record<string, unknown> | undefined {
   try {
@@ -85,6 +96,75 @@ function startJoiner(stateDir: string, sessionId: string, pid: string, hook: str
   child.once('spawn', () => log(stateDir, 'joiner-spawned', hook))
   child.once('error', () => log(stateDir, 'joiner-spawn-failed', hook))
   child.unref()
+}
+
+function brokerAlive(stateDir: string): boolean {
+  let pid: number | undefined
+  try {
+    pid = Number(readFileSync(join(stateDir, 'broker.pid'), 'utf8').trim())
+  } catch {}
+  return isLivePid(pid) || isLivePid(readJson(join(stateDir, 'join.json'))?.['pid'])
+}
+
+/**
+ * Remove the state of desktop sessions that are over (T-14467): no registry
+ * row with a live pid names the session, and no broker for it is alive. A
+ * broker that saw its session end already removed its own state once HRC
+ * recorded the exit; this catches the rest, such as a killed broker or an exit
+ * HRC never acked. HRC's own sweep settles the runtime. Cheap and fail-open:
+ * an unreadable registry skips the whole sweep, so a row caught mid-write
+ * never makes a live session look ended. Ended records (a cleanly ended
+ * session's binding, kept for a resumed session's rejoin) are pruned after 30
+ * days unless their session is live.
+ */
+function sweepEndedSessions(currentSessionId: string) {
+  const sessionsDir = join(claudeHome, 'sessions')
+  const liveSessions = new Set<string>()
+  for (const name of readdirSync(sessionsDir)) {
+    if (!name.endsWith('.json')) continue
+    const row = readJson(join(sessionsDir, name))
+    if (row === undefined) return
+    if (typeof row['sessionId'] === 'string' && isLivePid(row['pid'])) {
+      liveSessions.add(row['sessionId'])
+    }
+  }
+  const stateRoot = join(claudeHome, 'hrc-desktop')
+  for (const entry of readdirSync(stateRoot, { withFileTypes: true })) {
+    const sessionId = entry.name
+    if (
+      !entry.isDirectory() ||
+      sessionId === currentSessionId ||
+      !/^[a-zA-Z0-9_-]+$/.test(sessionId) ||
+      liveSessions.has(sessionId)
+    ) {
+      continue
+    }
+    const stateDir = join(stateRoot, sessionId)
+    if (brokerAlive(stateDir)) continue
+    try {
+      rmSync(stateDir, { recursive: true, force: true })
+      rmSync(join(claudeHome, 'hrc-desktop-scopes', `${sessionId}.json`), { force: true })
+      appendFileSync(
+        join(claudeHome, 'hrc-desktop-ended.log'),
+        `${JSON.stringify({ at: new Date().toISOString(), sessionId, sweptBy: currentSessionId })}\n`,
+        { mode: 0o600 }
+      )
+    } catch {}
+  } // An ended record is the binding a resumed session rejoins from; one whose
+  // session never came back ages out.
+  const endedRoot = join(claudeHome, 'hrc-desktop-ended')
+  let endedNames: string[] = []
+  try {
+    endedNames = readdirSync(endedRoot)
+  } catch {}
+  for (const name of endedNames) {
+    const sessionId = name.replace(/\.json$/, '')
+    if (!name.endsWith('.json') || liveSessions.has(sessionId)) continue
+    const path = join(endedRoot, name)
+    try {
+      if (Date.now() - statSync(path).mtimeMs > endedRecordMaxAgeMs) rmSync(path, { force: true })
+    } catch {}
+  }
 }
 
 function registeredAddress(stateDir: string, sessionId: string): string | undefined {
@@ -204,6 +284,11 @@ async function run() {
   try {
     if (hook === 'SessionStart' || hook === 'UserPromptSubmit') {
       startJoiner(stateDir, sessionId, pid ?? '', hook)
+      try {
+        sweepEndedSessions(sessionId)
+      } catch {
+        log(stateDir, 'sweep-error', hook)
+      }
     }
     if (hook === 'UserPromptSubmit') emitRegisteredReport(stateDir, sessionId)
     if (hook === 'SessionStart') {

@@ -100,7 +100,7 @@ export function createCodexDesktopJoinClient(input: CodexDesktopJoinInput): Desk
         yield desktopScopeRef(DESKTOP_AGENT_ID, projectId, slot)
       }
     },
-    createDriver: createCodexDesktopDriver,
+    createDriver: () => createCodexDesktopDriver(),
     async admit(paths) {
       const nativeAttemptStorePath = join(paths.stateDir, 'native-attempts.db')
       const admission = await admitDesktopThread({ ...input, nativeAttemptStorePath })

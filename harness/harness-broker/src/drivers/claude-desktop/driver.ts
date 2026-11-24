@@ -22,6 +22,12 @@ import {
   type ClaudeDesktopPeerDeliveryOptions,
   createClaudeDesktopPeerDelivery,
 } from './peer-delivery'
+import {
+  type ClaudeDesktopSessionEndReason,
+  type ClaudeDesktopSessionProbe,
+  DEFAULT_SESSION_WATCH_INTERVAL_MS,
+  checkClaudeDesktopSession,
+} from './session-watch'
 import { type ClaudeDesktopObserver, createClaudeDesktopObserver } from './transcript-observer'
 import {
   CLAUDE_DESKTOP_DRIVER_KIND,
@@ -96,6 +102,25 @@ export interface ClaudeDesktopDriverOptions {
   now?: (() => Date) | undefined
   /** Delivery: the session pid, its env and the marker window (T-14466). */
   delivery?: Omit<ClaudeDesktopPeerDeliveryOptions, 'sessionId' | 'claudeHome'> | undefined
+  /** Session-end watch (T-14467): runs only for an explicit session pid. */
+  sessionWatch?: ClaudeDesktopSessionWatchOptions | undefined
+}
+
+export interface ClaudeDesktopSessionWatchOptions {
+  /** The session's claude pid, from the registry row the joiner admitted. */
+  pid: number
+  intervalMs?: number | undefined
+  probe?: ClaudeDesktopSessionProbe | undefined
+  /** Called once, after `invocation.exited` for the session's end went out. */
+  onEnded?: ((end: ClaudeDesktopSessionEnd) => void) | undefined
+}
+
+export interface ClaudeDesktopSessionEnd {
+  reason: ClaudeDesktopSessionEndReason
+  detail: Record<string, unknown>
+  invocationId: string
+  /** The `invocation.exited` envelope's seq: HRC has recorded the exit once it acks this. */
+  exitedSeq: number
 }
 
 const SUBMISSION_TERMINALS: ReadonlySet<string> = new Set([
@@ -182,6 +207,8 @@ export function createClaudeDesktopDriver(options: ClaudeDesktopDriverOptions): 
   let chain: Promise<void> = Promise.resolve()
   let stopped = true
   let healthReason: string | undefined = 'claude_desktop_transcript_unavailable'
+  let sessionTimer: ReturnType<typeof setTimeout> | undefined
+  let sessionEnded = false
   const delivery = createClaudeDesktopPeerDelivery({ ...options.delivery, sessionId, claudeHome })
 
   const wakeup: ClaudeTranscriptWakeup | undefined =
@@ -322,8 +349,61 @@ export function createClaudeDesktopDriver(options: ClaudeDesktopDriverOptions): 
     return undefined
   }
 
+  /**
+   * Watch the session's process (T-14467): archiving a desktop session fires
+   * no SessionEnd hook, so the broker itself notices the pid gone, its
+   * registry row gone, or the pid reused by a later process. One check at a
+   * time; the next is scheduled after the previous resolves.
+   */
+  function watchSession(): void {
+    const watch = options.sessionWatch
+    if (watch === undefined || stopped || sessionEnded) return
+    sessionTimer = setTimeout(() => {
+      sessionTimer = undefined
+      void checkClaudeDesktopSession({ claudeHome, sessionId, pid: watch.pid, probe: watch.probe })
+        .then((check) => {
+          if (stopped || sessionEnded) return
+          if (check.alive) {
+            watchSession()
+            return
+          }
+          schedule(() => endSession(watch, check.reason, check.detail))
+        })
+        .catch(() => watchSession())
+    }, watch.intervalMs ?? DEFAULT_SESSION_WATCH_INTERVAL_MS)
+    sessionTimer.unref?.()
+  }
+
+  /** Publish what the transcript still holds, then report the session's exit once. */
+  function endSession(
+    watch: ClaudeDesktopSessionWatchOptions,
+    reason: ClaudeDesktopSessionEndReason,
+    detail: Record<string, unknown>
+  ): void {
+    const active = ctx
+    if (active === undefined || sessionEnded) return
+    sessionEnded = true
+    try {
+      if (transcriptPath !== undefined) observer?.drain()
+    } catch {}
+    const driver = { kind: CLAUDE_DESKTOP_DRIVER_KIND, rawType: 'session.end' }
+    active.emit(
+      'driver.notice',
+      {
+        message: `Claude desktop session ended (${reason}); reporting the invocation exited`,
+        code: 'CLAUDE_DESKTOP_SESSION_ENDED',
+        data: { reason, ...detail },
+      },
+      { driver }
+    )
+    const exited = active.emit('invocation.exited', { exitCode: null, signal: null }, { driver })
+    watch.onEnded?.({ reason, detail, invocationId: active.invocationId, exitedSeq: exited.seq })
+  }
+
   async function release(): Promise<void> {
     stopped = true
+    if (sessionTimer !== undefined) clearTimeout(sessionTimer)
+    sessionTimer = undefined
     delivery.close()
     if (poller !== undefined) clearInterval(poller)
     poller = undefined
@@ -403,6 +483,8 @@ export function createClaudeDesktopDriver(options: ClaudeDesktopDriverOptions): 
       read()
       poller = setInterval(() => schedule(read), pollIntervalMs)
       poller.unref?.()
+      sessionEnded = false
+      watchSession()
       return { ok: true }
     },
     async applyInputNow() {

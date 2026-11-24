@@ -25,6 +25,8 @@ export type DesktopStatePaths = {
   joinFile: string
   scopeCacheFile: string
   registryCacheFile: string
+  /** What survives a cleanly ended session: its binding, for a resumed session's respawn. */
+  endedFile: string
 }
 
 export function desktopStatePaths(clientHome: string, sessionId: string): DesktopStatePaths {
@@ -36,6 +38,7 @@ export function desktopStatePaths(clientHome: string, sessionId: string): Deskto
     joinFile: join(stateDir, 'join.json'),
     scopeCacheFile: join(clientHome, 'hrc-desktop-scopes', `${sessionId}.json`),
     registryCacheFile: join(clientHome, 'hrc-desktop-registry.json'),
+    endedFile: join(clientHome, 'hrc-desktop-ended', `${sessionId}.json`),
   }
 }
 
@@ -163,6 +166,48 @@ export function readPriorJoin(joinFile: string): PriorJoin | undefined {
       ? { socketPath: record['socketPath'] as string }
       : {}),
   }
+}
+
+/**
+ * Keep a cleanly ended session's binding outside its state dir (T-14467). A
+ * reopened app can resume the same session under a new pid, and HRC attaches
+ * that session's next broker only as a replacement naming this binding as
+ * `expectedPredecessor`. Holds only what the respawn reads; returns whether
+ * it was written.
+ */
+export function writeEndedRecord(paths: DesktopStatePaths): boolean {
+  const joined = readJoinFile(paths.joinFile)
+  if (
+    joined?.['phase'] !== 'joined' ||
+    typeof joined['registrationId'] !== 'string' ||
+    typeof joined['hostIncarnationId'] !== 'string' ||
+    typeof joined['runtimeId'] !== 'string' ||
+    typeof joined['generation'] !== 'number' ||
+    typeof joined['scopeRef'] !== 'string'
+  ) {
+    return false
+  }
+  try {
+    mkdirSync(dirname(paths.endedFile), { recursive: true, mode: 0o700 })
+    writeJsonRecord(paths.endedFile, {
+      phase: 'ended',
+      scopeRef: joined['scopeRef'],
+      registrationId: joined['registrationId'],
+      hostIncarnationId: joined['hostIncarnationId'],
+      runtimeId: joined['runtimeId'],
+      generation: joined['generation'],
+      endedAt: new Date().toISOString(),
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** A cleanly ended session's binding, read as a prior join for its respawn. */
+export function readEndedRecord(endedFile: string): PriorJoin | undefined {
+  const record = readJoinFile(endedFile)
+  return record?.['phase'] === 'ended' ? { record } : undefined
 }
 
 /**
