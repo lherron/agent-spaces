@@ -13,6 +13,7 @@ import {
   peerPrompt,
   queuedCommand,
   removeQueued,
+  resumedSessionPrompt,
   stopHookSummary,
   toolResult,
   turnCompanion,
@@ -137,6 +138,35 @@ describe('claude-desktop transcript observation', () => {
     ])
     expect(ofType(events, 'turn.started')).toHaveLength(1)
     await broker.stop({ invocationId: 'inv-midturn' as never, reason: 'test' })
+  })
+
+  test('a resumed session text-block opening row opens its turn with what was typed', async () => {
+    const home = claudeHome()
+    home.write('')
+    const { broker, events } = desktopBroker({
+      claudeHome: home.home,
+      captureDir: join(home.home, 'cap'),
+    })
+    await broker.start({ spec: desktopSpec('inv-resumed') })
+    home.append(
+      resumedSessionPrompt('p-resume', 'read vegacomms and answer clod') +
+        assistantToolUse('msg-resume-1', 'tool-resume') +
+        toolResult('tool-resume', 'ok') +
+        assistantText('msg-resume-2', 'Answered clod.') +
+        stopHookSummary('p-resume')
+    )
+    await waitFor(() => completed(events, 'turn_p-resume'))
+    expect(story(events)).toEqual([
+      'turn_p-resume turn.started',
+      'turn_p-resume user.message "read vegacomms and answer clod"',
+      'turn_p-resume turn.attributed foreign/human',
+      'turn_p-resume tool.call.started',
+      'turn_p-resume tool.call.completed',
+      'turn_p-resume assistant.message.completed "Answered clod." final=true',
+      'turn_p-resume turn.completed',
+    ])
+    expect(ofType(events, 'capture.warning')).toEqual([])
+    await broker.stop({ invocationId: 'inv-resumed' as never, reason: 'test' })
   })
 
   test('turns read in one batch keep their own turn ids', async () => {

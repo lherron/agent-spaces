@@ -167,3 +167,36 @@ export function typedTurn(promptId: string, prompt: string, answer: string): str
 }
 
 export const DESKTOP_SESSION_ID = SESSION
+
+/**
+ * The first prompt of a resumed desktop session (live max3, 2026-11-24): a
+ * content-less enqueue/dequeue pair, then an opening row whose content is
+ * text blocks, a harness system reminder ahead of what was typed.
+ */
+export function resumedSessionPrompt(promptId: string, typed: string): string {
+  return (
+    line({ type: 'queue-operation', operation: 'enqueue', sessionId: SESSION }) +
+    line({ type: 'queue-operation', operation: 'dequeue', sessionId: SESSION }) +
+    line({
+      ...meta(`user-${promptId}`),
+      type: 'user',
+      promptId,
+      turnPromptId: promptId,
+      permissionMode: 'auto',
+      origin: { kind: 'human' },
+      promptSource: 'sdk',
+      turnOrigin: 'human',
+      clientPlatform: 'desktop_app',
+      message: {
+        role: 'user',
+        content: [
+          {
+            type: 'text',
+            text: '<system-reminder>\nThe session "probe" you started finished a turn.\n</system-reminder>',
+          },
+          { type: 'text', text: typed },
+        ],
+      },
+    })
+  )
+}

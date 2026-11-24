@@ -86,6 +86,7 @@ export function createClaudeDesktopObserver(options: {
   const startedAssistantMessages = new Set<string>()
   /** Bodies of recent queue enqueues, to unwrap a peer row back to what was sent. */
   const enqueuedBodies: string[] = []
+  let contentlessEnqueues = 0
 
   /**
    * `turn_<promptId>` when the row names its prompt, so a turn keeps its id
@@ -280,6 +281,24 @@ export function createClaudeDesktopObserver(options: {
         }),
       }
     }
+    if (type === 'queue-operation' && entry['content'] === undefined) {
+      // A resumed desktop session writes a content-less enqueue/dequeue pair
+      // around its first prompt (live max3, 2026-11-24). It names no body, so
+      // it carries nothing to attribute; the opening row that follows does.
+      if (entry['operation'] === 'enqueue') {
+        contentlessEnqueues += 1
+        return { disposition: 'ignored-known', detail: 'content-less enqueue' }
+      }
+      if (
+        entry['operation'] === 'dequeue' &&
+        contentlessEnqueues > 0 &&
+        attribution.harnessLocalQueueDepth === 0
+      ) {
+        contentlessEnqueues -= 1
+        return { disposition: 'ignored-known', detail: 'dequeue of a content-less enqueue' }
+      }
+      return undefined
+    }
     if (type !== 'user' || typeof entry['turnOrigin'] === 'string') return undefined
     // The meta row Claude writes just before a turn's real opening row, and
     // harness reminders: neither is a prompt, and a turn opened from one would
@@ -314,10 +333,29 @@ export function createClaudeDesktopObserver(options: {
           }
         }
         const before = attribution.activeTurnId
-        const outcome = normalize(captured)
+        let outcome = normalize(captured)
+        // The shared reader reads a prompt only from string content. A resumed
+        // desktop session writes the opening row as text blocks (a harness
+        // `<system-reminder>` block, then what was typed), so open it here.
+        if (opener && entry !== undefined && attribution.activeTurnId === before) {
+          const typed = openerBlockText(entry)
+          if (typed !== undefined) {
+            sink.emitActions(attribution.observePlainUser(typed, entry), 'transcript.user')
+            outcome = { disposition: 'normalized', detail: 'text-block opening row' }
+          }
+        }
         const after = attribution.activeTurnId
         if (opener && entry !== undefined && after !== undefined && after !== before) {
           attributeTurn(after, entry)
+        }
+        // Attribution warnings the shared sink holds for its caller to settle.
+        const unclassified = sink.takeUnclassified()
+        if (unclassified.length > 0 && outcome.disposition !== 'blocked-unknown') {
+          outcome = {
+            disposition: 'blocked-unknown',
+            family: 'submission-disposition',
+            message: unclassified.map((warning) => warning.message).join('; '),
+          }
         }
         if (isTurnTerminalRow(entry) && closeActiveTurn('transcript.turn-terminal')) {
           return { disposition: 'normalized', detail: 'transcript turn terminal' }
@@ -382,6 +420,24 @@ export function createClaudeDesktopObserver(options: {
 
 function desktopDriver(rawType: string): { kind: string; rawType: string } {
   return { kind: CLAUDE_DESKTOP_DRIVER_KIND, rawType }
+}
+
+/**
+ * What was typed on a text-block opening row: its text blocks other than
+ * harness `<system-reminder>` blocks, else all of them. Undefined for string
+ * content (the shared reader handles that) and for tool results.
+ */
+function openerBlockText(entry: Record<string, unknown>): string | undefined {
+  const content = asRecord(entry['message'])['content']
+  if (!Array.isArray(content) || hasToolResult(entry)) return undefined
+  const texts = content
+    .map((block) => asRecord(block))
+    .filter((block) => getString(block, 'type') === 'text')
+    .map((block) => getString(block, 'text') ?? '')
+    .filter((text) => text.trim().length > 0)
+  const typed = texts.filter((text) => !text.trimStart().startsWith('<system-reminder>'))
+  const chosen = (typed.length > 0 ? typed : texts).join('\n\n').trim()
+  return chosen.length > 0 ? chosen : undefined
 }
 
 function hasToolResult(entry: Record<string, unknown>): boolean {
