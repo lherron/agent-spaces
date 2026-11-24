@@ -123,6 +123,70 @@ test('SessionStart adds a guard that reads the current caller env at Bash execut
   expect(bashCall()).toBe('rt_joined')
 })
 
+test('the Stop hook enforces HRC reply obligations and allows on any failure', async () => {
+  overlay()
+  const sessionId = 'desktop-session'
+  const claudePid = '31416'
+  const state = join(claude, 'hrc-desktop', sessionId)
+  mkdirSync(state, { recursive: true })
+  writeFileSync(
+    join(claude, 'sessions', `${claudePid}.json`),
+    JSON.stringify({ entrypoint: 'claude-desktop', sessionId, cwd: home })
+  )
+  writeFileSync(
+    join(state, 'join.json'),
+    JSON.stringify({
+      phase: 'joined',
+      pid: process.pid,
+      runtimeId: 'rt-desktop',
+      scopeRef: `agent:vega:project:hrc-runtime:task:claude-${sessionId}`,
+    })
+  )
+  const hrcSocket = join('/tmp', `stop-${crypto.randomUUID().slice(0, 8)}.sock`)
+  const asked: Array<{ body: unknown; caller: string | null }> = []
+  const server = Bun.serve({
+    unix: hrcSocket,
+    async fetch(request) {
+      asked.push({ body: await request.json(), caller: request.headers.get('x-praesidium-caller') })
+      return Response.json({ decision: 'block', reason: 'Answer EN-1 before ending the turn.' })
+    },
+  })
+  async function stop() {
+    const child = Bun.spawn({
+      cmd: [process.execPath, join(claude, 'hrc-desktop-hook', 'join.mjs'), claudePid],
+      env: { HOME: home, PATH: '/usr/bin:/bin', HRC_MAIL_STOP_SOCKET: hrcSocket },
+      stdin: Buffer.from(JSON.stringify({ hook_event_name: 'Stop', session_id: sessionId })),
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ])
+    expect(code).toBe(0)
+    expect(stderr).toBe('')
+    return stdout
+  }
+  try {
+    expect(JSON.parse(await stop())).toEqual({
+      decision: 'block',
+      reason: 'Answer EN-1 before ending the turn.',
+    })
+    expect(asked).toEqual([
+      {
+        body: { runtimeId: 'rt-desktop' },
+        caller: `vega@hrc-runtime:claude-${sessionId}`,
+      },
+    ])
+  } finally {
+    server.stop(true)
+    rmSync(hrcSocket, { force: true })
+  }
+  // HRC unreachable: the turn ends normally.
+  expect(await stop()).toBe('')
+})
+
 describe.skipIf(process.platform !== 'darwin')('desktop shell gate', () => {
   function hookCommand(): string {
     return JSON.parse(readFileSync(join(claude, 'settings.json'), 'utf8')).hooks.SessionStart[0]

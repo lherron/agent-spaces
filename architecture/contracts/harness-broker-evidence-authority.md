@@ -275,6 +275,17 @@ replays the transcript from byte zero with publishing muted up to just past the
 last row it journaled. Diagnostics stay broker: the observer's health notices
 are broker facts.
 
+Delivery (T-14466) writes a steer to the session's messaging socket, and the
+written body ends with `[hrc:input <inputId>]`. The transcript rows that record
+that body settle it: the peer opening row executes it in its own turn, and a
+`queued_command` row absorbs it into the running turn. Hints follow the
+hook-only rule above with one exception. When no transcript row has carried
+the marker yet, a UserPromptSubmit hint whose `prompt` contains it executes the
+submission in `turn_<prompt_id>`. That is the only disposition a hook mints. A
+written attempt with no marker inside the window is a broker decision,
+`submission.lost` with `turn-correlation-lost`. A bypassPermissions receiver
+is refused before any write.
+
 ### pi-sdk
 
 No exceptions. pi-sdk runs in-process with no hook channel, so its

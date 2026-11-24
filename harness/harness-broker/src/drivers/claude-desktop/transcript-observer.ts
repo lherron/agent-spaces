@@ -1,5 +1,6 @@
 import type {
   EventProvenance,
+  InputId,
   InvocationEventType,
   MessageId,
   RawProviderRecord,
@@ -20,6 +21,7 @@ import {
 } from '../claude-code-tmux/turn-attribution'
 import type { DriverContext } from '../driver'
 import { asRecord, getString } from '../hook-json'
+import { inputMarkersIn } from './peer-delivery'
 import {
   CLAUDE_DESKTOP_DRIVER_KIND,
   CLAUDE_DESKTOP_DRIVER_VERSION,
@@ -50,6 +52,10 @@ export interface ClaudeDesktopObserver {
   open(path: string, plan: ClaudeDesktopReplayPlan): void
   /** Read rows appended since the last read. */
   drain(): void
+  /** A body the broker is writing to the session; its rows settle it. */
+  trackDelivery(inputId: InputId, body: string): void
+  /** Stop expecting a body: it was never written, or it was settled lost. */
+  forgetDelivery(inputId: InputId): void
   readonly activeTurnId: TurnId | undefined
 }
 
@@ -65,6 +71,12 @@ export function createClaudeDesktopObserver(options: {
   now: () => Date
   /** A row at or past the boundary was published; `nextByte` is just past its newline. */
   onRowPublished?: ((nextByte: number) => void) | undefined
+  /** Whether this broker life wrote the input a marker names. */
+  isOwnInput?: ((inputId: string) => boolean) | undefined
+  /** A prompt row recorded the session's permission mode. */
+  onPermissionMode?: ((mode: string) => void) | undefined
+  /** The session queued a body this broker life wrote: it was received. */
+  onOwnEnqueued?: ((inputId: InputId) => void) | undefined
 }): ClaudeDesktopObserver {
   const { ctx, now } = options
   const invocationId = ctx.invocationId
@@ -86,6 +98,8 @@ export function createClaudeDesktopObserver(options: {
   const startedAssistantMessages = new Set<string>()
   /** Bodies of recent queue enqueues, to unwrap a peer row back to what was sent. */
   const enqueuedBodies: string[] = []
+  /** Own inputs settled from a marker row, so their trailing queue rows are known. */
+  const settledOwn = new Set<string>()
   let contentlessEnqueues = 0
 
   /**
@@ -228,16 +242,20 @@ export function createClaudeDesktopObserver(options: {
     const human = turnOrigin === 'human'
     const peer = originKind === 'peer'
     const driver = desktopDriver('transcript.user')
+    // A peer message may be HRC's own delivery; only its marker can say so.
+    const own = peer ? ownMarker(rowText(entry)) : undefined
     emit(
       'turn.attributed',
-      {
-        turnId,
-        // A peer message may be HRC's own delivery; only its marker can say so.
-        ownership: peer ? 'unknown' : 'foreign',
-        origin: human ? 'human' : 'autonomous',
-      },
+      own !== undefined
+        ? { turnId, ownership: 'own', inputId: own, origin: 'broker' }
+        : {
+            turnId,
+            ownership: peer ? 'unknown' : 'foreign',
+            origin: human ? 'human' : 'autonomous',
+          },
       { turnId, driver }
     )
+    if (own !== undefined) settleOwn('submission.executed', own, turnId, 'transcript.user')
     const verifiedPeerPid = origin['verifiedPeerPid']
     emit(
       'driver.notice',
@@ -256,6 +274,55 @@ export function createClaudeDesktopObserver(options: {
       },
       { turnId, driver }
     )
+  }
+
+  /** The input id of the first marker in `text` that this broker life wrote. */
+  function ownMarker(text: string): InputId | undefined {
+    if (options.isOwnInput === undefined) return undefined
+    return inputMarkersIn(text).find((inputId) => options.isOwnInput?.(inputId)) as
+      | InputId
+      | undefined
+  }
+
+  /**
+   * The marker is the delivery evidence: settle from it even when the shared
+   * queue attribution could not match the body (the broker drops a repeat).
+   */
+  function settleOwn(
+    type: 'submission.executed' | 'submission.absorbed',
+    inputId: InputId,
+    turnId: TurnId,
+    rawType: string
+  ): void {
+    emit(
+      type,
+      { submissionId: inputId, turnId },
+      { turnId, inputId, driver: desktopDriver(rawType) }
+    )
+    base.cancelBrokerSubmission(inputId)
+    settledOwn.add(inputId)
+    if (settledOwn.size > 64) settledOwn.delete(settledOwn.values().next().value as string)
+  }
+
+  /**
+   * A peer message read mid-turn: the `queued_command` row (origin peer)
+   * carries the marker, and it is the absorption. Live, Claude writes it
+   * before its own queue `remove` (max3, 2026-11-24), which the shared queue
+   * attribution cannot match, so the marker settles it here.
+   */
+  function absorbOwn(entry: Record<string, unknown> | undefined): NormalizeOutcome | undefined {
+    const prompt = queuedCommandPrompt(entry)
+    const turnId = attribution.activeTurnId
+    if (prompt === undefined || turnId === undefined) return undefined
+    const inputId = ownMarker(prompt)
+    if (inputId === undefined) return undefined
+    emit(
+      'user.message',
+      { content: prompt, turnId, inputId },
+      { turnId, inputId, driver: desktopDriver('queued_command') }
+    )
+    settleOwn('submission.absorbed', inputId, turnId, 'queued_command')
+    return { disposition: 'normalized', detail: 'own peer message absorbed by marker' }
   }
 
   /** Desktop-only rows the shared native-type table does not know. */
@@ -279,6 +346,13 @@ export function createClaudeDesktopObserver(options: {
           hookName: getString(attachment, 'hookName') ?? null,
           hookEvent: getString(attachment, 'hookEvent') ?? null,
         }),
+      }
+    }
+    if (type === 'queue-operation' && typeof entry['content'] === 'string') {
+      const settled = inputMarkersIn(entry['content']).find((inputId) => settledOwn.has(inputId))
+      if (settled !== undefined && entry['operation'] !== 'enqueue') {
+        if (entry['operation'] === 'remove') settledOwn.delete(settled)
+        return { disposition: 'ignored-known', detail: 'queue row of a marker-settled input' }
       }
     }
     if (type === 'queue-operation' && entry['content'] === undefined) {
@@ -317,6 +391,8 @@ export function createClaudeDesktopObserver(options: {
     captured: CapturedRecord,
     normalize: (captured: CapturedRecord) => NormalizeOutcome
   ): NormalizeOutcome {
+    const mode = entry?.['type'] === 'user' ? getString(entry, 'permissionMode') : undefined
+    if (mode !== undefined) options.onPermissionMode?.(mode)
     const desktopOnly = desktopOnlyDisposition(entry)
     if (desktopOnly !== undefined) return desktopOnly
     const opener = isTurnOpenerRow(entry)
@@ -331,6 +407,12 @@ export function createClaudeDesktopObserver(options: {
             enqueuedBodies.push(body)
             if (enqueuedBodies.length > 64) enqueuedBodies.shift()
           }
+        }
+        const ownAbsorbed = absorbOwn(entry)
+        if (ownAbsorbed !== undefined) return ownAbsorbed
+        if (entry?.['type'] === 'queue-operation' && entry['operation'] === 'enqueue') {
+          const queued = ownMarker(typeof entry['content'] === 'string' ? entry['content'] : '')
+          if (queued !== undefined) options.onOwnEnqueued?.(queued)
         }
         const before = attribution.activeTurnId
         let outcome = normalize(captured)
@@ -412,10 +494,32 @@ export function createClaudeDesktopObserver(options: {
     drain() {
       reader.drain()
     },
+    trackDelivery(inputId, body) {
+      base.trackBrokerSubmission({ submissionId: inputId, content: body, inputId })
+    },
+    forgetDelivery(inputId) {
+      base.cancelBrokerSubmission(inputId)
+    },
     get activeTurnId() {
       return attribution.activeTurnId
     },
   }
+}
+
+/** A row's message text: string content, or its text blocks joined. */
+function rowText(entry: Record<string, unknown>): string {
+  const content = asRecord(entry['message'])['content']
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content.map((block) => getString(asRecord(block), 'text') ?? '').join('\n')
+}
+
+function queuedCommandPrompt(entry: Record<string, unknown> | undefined): string | undefined {
+  if (entry?.['type'] !== 'attachment') return undefined
+  const attachment = asRecord(entry['attachment'])
+  return getString(attachment, 'type') === 'queued_command'
+    ? getString(attachment, 'prompt')
+    : undefined
 }
 
 function desktopDriver(rawType: string): { kind: string; rawType: string } {

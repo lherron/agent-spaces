@@ -4,6 +4,7 @@ import {
   BrokerErrorCode,
   CONSERVATIVE_LIFECYCLE_CAPABILITIES,
   type InvocationCapabilities,
+  type TurnId,
 } from 'spaces-harness-broker-protocol'
 import type { CaptureGate } from '../../capture/capture-gate'
 import { BrokerError, errorMessage } from '../../errors'
@@ -17,6 +18,10 @@ import type { Driver, DriverContext } from '../driver'
 import { CLAUDE_DESKTOP_AUTHORITY } from '../evidence-authority'
 import { type HookListenerHandle, listenForHookEnvelopes } from '../hook-callback/listener'
 import { asRecord, getString, unwrapHookPayload } from '../hook-json'
+import {
+  type ClaudeDesktopPeerDeliveryOptions,
+  createClaudeDesktopPeerDelivery,
+} from './peer-delivery'
 import { type ClaudeDesktopObserver, createClaudeDesktopObserver } from './transcript-observer'
 import {
   CLAUDE_DESKTOP_DRIVER_KIND,
@@ -26,12 +31,18 @@ import {
   writeClaudeDesktopCursor,
 } from './transcript-plan'
 
+/**
+ * Steer is the one door (C-39348, as drivers/claude-code-tmux/driver.ts
+ * declares it): the session reads a peer message idle or between tool calls,
+ * and the transcript carries its marker. No queue class: the session owns its
+ * turns, so the broker never starts one.
+ */
 const capabilities: InvocationCapabilities = {
-  admission: { classes: [] },
+  admission: { classes: ['steer'] },
   bracketMintingMode: 'observed',
   queue: { cancelHarnessLocal: false },
   preempt: { mode: null },
-  steer: { landingEvidence: null },
+  steer: { landingEvidence: 'transcript' },
   interrupt: { landingEvidence: null },
   input: {
     user: false,
@@ -83,14 +94,29 @@ export interface ClaudeDesktopDriverOptions {
   /** Defaults to {@link claudeDesktopHookSocketPath}; `false` binds none. */
   hookSocketPath?: string | false | undefined
   now?: (() => Date) | undefined
+  /** Delivery: the session pid, its env and the marker window (T-14466). */
+  delivery?: Omit<ClaudeDesktopPeerDeliveryOptions, 'sessionId' | 'claudeHome'> | undefined
 }
+
+const SUBMISSION_TERMINALS: ReadonlySet<string> = new Set([
+  'submission.executed',
+  'submission.absorbed',
+  'submission.rejected',
+  'submission.cancelled',
+  'submission.lost',
+  'submission.expired',
+  'submission.withdrawn',
+])
 
 /**
  * Stamp this driver's kind on what the shared Claude modules emit and commit.
  * They say `claude-code-tmux`, the tmux driver's name, not a fact about the
  * evidence (same rewrite as claude-code-hrcpty).
  */
-function withDesktopDriverKind(ctx: DriverContext): DriverContext {
+function withDesktopDriverKind(
+  ctx: DriverContext,
+  onSubmissionTerminal: (submissionId: string) => void
+): DriverContext {
   const relabel = <
     E extends { driver?: { kind: string; rawType?: string | undefined } | undefined },
   >(
@@ -112,11 +138,24 @@ function withDesktopDriverKind(ctx: DriverContext): DriverContext {
               normalize
             ),
         }
+  const settled = (type: string, payload: unknown): void => {
+    if (!SUBMISSION_TERMINALS.has(type)) return
+    const submissionId = (payload as { submissionId?: unknown } | undefined)?.submissionId
+    if (typeof submissionId === 'string') onSubmissionTerminal(submissionId)
+  }
   return {
     ...ctx,
     ...(capture !== undefined ? { capture } : {}),
-    emit: (type, payload, extra) => ctx.emit(type, payload, relabel(extra)),
-    emitEvent: (event, extra) => ctx.emitEvent(event, relabel(extra)),
+    emit: (type, payload, extra) => {
+      const envelope = ctx.emit(type, payload, relabel(extra))
+      settled(type, payload)
+      return envelope
+    },
+    emitEvent: (event, extra) => {
+      const envelope = ctx.emitEvent(event, relabel(extra))
+      settled(event.type, event.payload)
+      return envelope
+    },
   }
 }
 
@@ -127,7 +166,8 @@ function withDesktopDriverKind(ctx: DriverContext): DriverContext {
  * delays a read by at most one poll and loses nothing. A restarted broker
  * replays the transcript from byte zero with publishing muted up to just past
  * the last row it journaled, so it neither re-emits nor skips a turn.
- * Delivery into the session is a separate concern (T-14466).
+ * Delivery (T-14466) writes HRC input to the session's messaging socket; the
+ * written body's own transcript rows, or its marker, settle it.
  */
 export function createClaudeDesktopDriver(options: ClaudeDesktopDriverOptions): Driver {
   const { sessionId, claudeHome } = options
@@ -142,6 +182,7 @@ export function createClaudeDesktopDriver(options: ClaudeDesktopDriverOptions): 
   let chain: Promise<void> = Promise.resolve()
   let stopped = true
   let healthReason: string | undefined = 'claude_desktop_transcript_unavailable'
+  const delivery = createClaudeDesktopPeerDelivery({ ...options.delivery, sessionId, claudeHome })
 
   const wakeup: ClaudeTranscriptWakeup | undefined =
     options.watchTranscript === false
@@ -264,13 +305,26 @@ export function createClaudeDesktopDriver(options: ClaudeDesktopDriverOptions): 
       },
       () => ({ disposition: 'state-only', detail: `claude-desktop hint: ${name}` })
     )
+    delivery.notePermissionMode(getString(hook, 'permission_mode'))
     const hintedPath = getString(hook, 'transcript_path')
     schedule(() => read(hintedPath))
+    const prompt = name === 'UserPromptSubmit' ? getString(hook, 'prompt') : undefined
+    if (prompt !== undefined) {
+      // After the read: the transcript is the first witness, the hook the backstop.
+      const promptId = getString(hook, 'prompt_id')
+      schedule(() =>
+        delivery.notePromptMarkers(
+          prompt,
+          promptId !== undefined ? (`turn_${promptId}` as TurnId) : observer?.activeTurnId
+        )
+      )
+    }
     return undefined
   }
 
   async function release(): Promise<void> {
     stopped = true
+    delivery.close()
     if (poller !== undefined) clearInterval(poller)
     poller = undefined
     wakeup?.close()
@@ -291,7 +345,9 @@ export function createClaudeDesktopDriver(options: ClaudeDesktopDriverOptions): 
     evidenceAuthority: CLAUDE_DESKTOP_AUTHORITY,
     nativeSourceKind: 'provider-jsonl',
     preemptMode: null,
-    steerLandingEvidence: null,
+    steerLandingEvidence: 'transcript',
+    // The session starts its own turn when it reads the message.
+    steerNeverStartsTurn: true,
     interruptLandingEvidence: null,
     capabilities: () => capabilities,
     runtimeHealth() {
@@ -304,13 +360,23 @@ export function createClaudeDesktopDriver(options: ClaudeDesktopDriverOptions): 
         throw new BrokerError(BrokerErrorCode.DriverUnavailable, 'Claude Desktop session mismatch')
       }
       await release()
-      ctx = withDesktopDriverKind(brokerCtx)
+      ctx = withDesktopDriverKind(brokerCtx, (submissionId) =>
+        delivery.noteSubmissionTerminal(submissionId)
+      )
       cwd = spec.process.cwd
       const stateDir = brokerCtx.durableStateDir
-      observer = createClaudeDesktopObserver({
+      const active = createClaudeDesktopObserver({
         ctx,
         now,
         onRowPublished: (nextByte) => saveCursor(stateDir, nextByte),
+        isOwnInput: (inputId) => delivery.wrote(inputId),
+        onPermissionMode: (mode) => delivery.notePermissionMode(mode),
+        onOwnEnqueued: (inputId) => delivery.noteQueued(inputId),
+      })
+      observer = active
+      delivery.open(ctx, {
+        track: (inputId, body) => active.trackDelivery(inputId, body),
+        forget: (inputId) => active.forgetDelivery(inputId),
       })
       transcriptPath = undefined
       healthReason = 'claude_desktop_transcript_unavailable'
@@ -344,6 +410,9 @@ export function createClaudeDesktopDriver(options: ClaudeDesktopDriverOptions): 
         BrokerErrorCode.UnsupportedCapability,
         'Claude Desktop input is unavailable'
       )
+    },
+    applySteerNow(input) {
+      return delivery.steer(input)
     },
     async interrupt() {
       return {

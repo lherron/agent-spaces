@@ -34,19 +34,19 @@ export const removeQueued = (content: string): string =>
     reason: 'absorbed_mid_turn',
   })
 
-export const queuedCommand = (prompt: string): string =>
+export const queuedCommand = (prompt: string, origin?: Record<string, unknown>): string =>
   line({
     ...meta(`att-${prompt.length}`),
     type: 'attachment',
-    attachment: { type: 'queued_command', prompt },
+    attachment: { type: 'queued_command', prompt, ...(origin !== undefined ? { origin } : {}) },
   })
 
-export const humanPrompt = (promptId: string, content: string): string =>
+export const humanPrompt = (promptId: string, content: string, permissionMode = 'auto'): string =>
   line({
     ...meta(`user-${promptId}`),
     type: 'user',
     promptId,
-    permissionMode: 'auto',
+    permissionMode,
     origin: { kind: 'human' },
     promptSource: 'sdk',
     turnOrigin: 'human',

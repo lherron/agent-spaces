@@ -11,6 +11,7 @@ import {
   readRegistryWithLastGood,
   resolveDesktopProjectSync,
 } from '../../harness/harness-broker/src/desktop-project'
+import { queryMailStopDecision } from '../../harness/harness-broker/src/drivers/mail-stop-gate'
 
 const userHome = homedir()
 const claudeHome = join(userHome, '.claude')
@@ -135,6 +136,24 @@ function emitRegisteredReport(stateDir: string, sessionId: string) {
   log(stateDir, 'registered-report-emitted', 'UserPromptSubmit')
 }
 
+/**
+ * Reply enforcement, not delivery: HRC blocks the turn's end while presented,
+ * reply-required mail is unanswered. It sees only mail already presented.
+ * Every failure is an allow, so the session is never wedged.
+ */
+async function mailStopDecision(stateDir: string, sessionId: string, input: unknown) {
+  const record = readJson(join(stateDir, 'join.json'))
+  const runtimeId = record?.['runtimeId']
+  const caller = registeredAddress(stateDir, sessionId)
+  if (caller === undefined || typeof runtimeId !== 'string') return undefined
+  return queryMailStopDecision(input, {
+    HRC_MAIL_STOP_SOCKET:
+      process.env['HRC_MAIL_STOP_SOCKET'] ?? join(platformRoot, 'run', 'hrc', 'hrc.sock'),
+    HARNESS_BROKER_RUNTIME_ID: runtimeId,
+    PRAESIDIUM_CALLER: caller,
+  })
+}
+
 async function sendHint(stateDir: string, raw: string, hook: string): Promise<void> {
   const path = join(stateDir, 'hook.sock')
   if (!lstatSync(path, { throwIfNoEntry: false })?.isSocket()) return
@@ -215,7 +234,15 @@ async function run() {
           },
         })
       )
-    } else if (hook === 'UserPromptSubmit' || hook === 'Stop' || hook === 'Notification') {
+    } else if (hook === 'Stop') {
+      // Ask before the hint: the hint wakes a read that may close the turn.
+      const decision = await mailStopDecision(stateDir, sessionId, input).catch(() => undefined)
+      await sendHint(stateDir, raw, hook)
+      if (decision !== undefined) {
+        console.log(JSON.stringify(decision))
+        log(stateDir, 'mail-stop-blocked', hook)
+      }
+    } else if (hook === 'UserPromptSubmit' || hook === 'Notification') {
       await sendHint(stateDir, raw, hook)
     }
   } catch {

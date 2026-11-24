@@ -38,6 +38,33 @@ from `$HOME/.claude`, so set `HOME` to the scratch home when driving the copy.
   `asp self inspect` while the broker PID is alive. Open a fresh Desktop
   tab after installing the overlay so Claude loads the snippet at startup.
 
+## Mail delivery
+
+HRC mail reaches a joined session as a steer through Claude's cross-session
+messaging socket (`messagingSocketPath` in the registry row). An idle session
+starts a turn on the message. A busy session reads it between tool calls and
+absorbs it into the running turn. The written content begins with an
+`[HRC delivery from <sender>, envelope <EN>]` line and ends with
+`[hrc:input <inputId>]`. The session records only the broker's pid as the
+sender, so these lines identify the real sender and the submission.
+
+- A session has one unresolved attempt at a time. Each write is made once and
+  never resent.
+- The marker in the transcript's peer row or `queued_command` row settles the
+  submission as executed or absorbed. A UserPromptSubmit `prompt` carrying the
+  marker settles it as executed.
+- With no marker after 30 s, the submission is settled `submission.lost`, a
+  `CLAUDE_DESKTOP_DELIVERY_UNCONFIRMED` notice records the receiver's registry
+  status, and delivery continues.
+- When the latest hook or prompt row reports `bypassPermissions`, nothing is
+  written and the steer is rejected with `receiver_bypass_permissions`. The
+  envelope stays pending until the session leaves bypass mode.
+  `crossSessionInbound` is never set.
+- The Stop hook asks HRC's stop-decision endpoint, using the `runtimeId` in
+  `join.json`, whether presented, reply-required mail is still unanswered. If
+  so, it blocks the turn's end with HRC's reason. Every failure allows the turn
+  to end. This gate only enforces replies and never delivers mail.
+
 ## Check a session
 
 Read `~/.claude/hrc-desktop/<sessionId>/hook.log` for typed hook events and
