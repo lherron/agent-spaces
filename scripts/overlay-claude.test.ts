@@ -41,6 +41,49 @@ test('preserves unmanaged settings bytes and is idempotent', () => {
   expect(readFileSync(settings, 'utf8')).toBe(written)
 })
 
+test('reports a live registration on the first prompt after join', () => {
+  overlay()
+  const sessionId = 'desktop-session'
+  const claudePid = '31416'
+  const state = join(claude, 'hrc-desktop', sessionId)
+  mkdirSync(state, { recursive: true })
+  writeFileSync(
+    join(claude, 'sessions', `${claudePid}.json`),
+    JSON.stringify({ entrypoint: 'claude-desktop', sessionId, cwd: home })
+  )
+  writeFileSync(join(state, 'broker.pid'), String(process.pid))
+
+  function prompt() {
+    const result = Bun.spawnSync({
+      cmd: [process.execPath, join(claude, 'hrc-desktop-hook', 'join.mjs'), claudePid],
+      env: { HOME: home, PATH: '/usr/bin:/bin' },
+      stdin: Buffer.from(
+        JSON.stringify({ hook_event_name: 'UserPromptSubmit', session_id: sessionId })
+      ),
+    })
+    expect(result.exitCode).toBe(0)
+    expect(result.stderr.toString()).toBe('')
+    return result.stdout.toString()
+  }
+
+  expect(prompt()).toBe('')
+  writeFileSync(
+    join(state, 'join.json'),
+    JSON.stringify({
+      phase: 'joined',
+      pid: process.pid,
+      scopeRef: `agent:vega:project:hrc-runtime:task:claude-${sessionId}`,
+    })
+  )
+  expect(JSON.parse(prompt())).toEqual({
+    hookSpecificOutput: {
+      hookEventName: 'UserPromptSubmit',
+      additionalContext: `## Join report\n\nregistered: vega@hrc-runtime:claude-${sessionId}\n`,
+    },
+  })
+  expect(prompt()).toBe('')
+})
+
 describe.skipIf(process.platform !== 'darwin')('desktop shell gate', () => {
   function hookCommand(): string {
     return JSON.parse(readFileSync(join(claude, 'settings.json'), 'utf8')).hooks.SessionStart[0]

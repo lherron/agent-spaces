@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { appendFileSync, lstatSync, mkdirSync, readFileSync } from 'node:fs'
+import { appendFileSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { connect } from 'node:net'
 import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
@@ -110,6 +110,29 @@ async function joinReport(stateDir: string, sessionId: string, cwd: string): Pro
   return `provisional: vega@${projectId}:claude-${sessionId}`
 }
 
+function emitRegisteredReport(stateDir: string, sessionId: string) {
+  const address = registeredAddress(stateDir, sessionId)
+  if (!address) return
+  try {
+    // Concurrent prompts share this claim. A provisional report never takes it.
+    writeFileSync(join(stateDir, 'registered-report.sent'), '', { flag: 'wx', mode: 0o600 })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
+      log(stateDir, 'registered-report-marker-error', 'UserPromptSubmit')
+    }
+    return
+  }
+  console.log(
+    JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'UserPromptSubmit',
+        additionalContext: `## Join report\n\nregistered: ${address}\n`,
+      },
+    })
+  )
+  log(stateDir, 'registered-report-emitted', 'UserPromptSubmit')
+}
+
 async function sendHint(stateDir: string, raw: string, hook: string): Promise<void> {
   const path = join(stateDir, 'hook.sock')
   if (!lstatSync(path, { throwIfNoEntry: false })?.isSocket()) return
@@ -161,6 +184,7 @@ async function run() {
     if (hook === 'SessionStart' || hook === 'UserPromptSubmit') {
       startJoiner(stateDir, sessionId, pid ?? '', hook)
     }
+    if (hook === 'UserPromptSubmit') emitRegisteredReport(stateDir, sessionId)
     if (hook === 'SessionStart') {
       let instructions = ''
       try {

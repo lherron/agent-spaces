@@ -24,7 +24,10 @@ from `$HOME/.claude`, so set `HOME` to the scratch home when driving the copy.
   available. Otherwise the joiner's project resolver produces a provisional
   `vega@<project>:claude-<sessionId>` address, with `praesidium` for an
   unbound cwd. If the registry and its last good copy are both unavailable,
-  the report says the provisional address is unavailable.
+  the report says the provisional address is unavailable. The first
+  UserPromptSubmit after registration adds the registered address to the
+  session context. A marker in the session state directory keeps later
+  prompts from repeating it.
 - UserPromptSubmit, Stop and Notification send best-effort hints over
   `~/.claude/hrc-desktop/<sessionId>/hook.sock` when it exists. The hook
   exits successfully even when a hint fails or the broker is unavailable.
