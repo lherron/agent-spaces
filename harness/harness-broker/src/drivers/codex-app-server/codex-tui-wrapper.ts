@@ -100,6 +100,45 @@ interface WrapperArgs {
   attachOnly: boolean
   /** File the driver writes the thread's rollout path to (attach-only). */
   rolloutMarkerPath?: string | undefined
+  /** The seat's resolved model and effort, so the TUI never falls back to config.toml's default. */
+  tuiModel?: string | undefined
+  tuiReasoningEffort?: string | undefined
+}
+
+/**
+ * Wrapper flags that carry the seat's resolved model and reasoning effort to
+ * the TUI. The per-scope config.toml names a compile-time default model, and
+ * the TUI reads it at startup: a retiring default (gpt-5.6-terra) opens a
+ * full-screen migration dialog that eats the seat's first input, and turns
+ * typed in the pane would run on that default instead of the profile's model.
+ */
+export function codexTuiModelArgs(
+  driver:
+    | {
+        model?: string | undefined
+        modelReasoningEffort?: string | undefined
+      }
+    | undefined
+): string[] {
+  return [
+    ...(driver?.model ? ['--tui-model', driver.model] : []),
+    ...(driver?.modelReasoningEffort
+      ? ['--tui-reasoning-effort', driver.modelReasoningEffort]
+      : []),
+  ]
+}
+
+/** Codex CLI flags for the wrapper's TUI model and effort. */
+export function codexTuiModelFlags(options: {
+  tuiModel?: string | undefined
+  tuiReasoningEffort?: string | undefined
+}): string[] {
+  return [
+    ...(options.tuiModel ? ['-m', options.tuiModel] : []),
+    ...(options.tuiReasoningEffort
+      ? ['-c', `model_reasoning_effort=${JSON.stringify(options.tuiReasoningEffort)}`]
+      : []),
+  ]
 }
 
 function parseArgs(argv: readonly string[]): WrapperArgs {
@@ -119,6 +158,8 @@ function parseArgs(argv: readonly string[]): WrapperArgs {
   }
   const runtimeId = flag('--runtime-id')
   const rolloutMarkerPath = flag('--rollout-marker')
+  const tuiModel = flag('--tui-model')
+  const tuiReasoningEffort = flag('--tui-reasoning-effort')
   return {
     command,
     socketPath,
@@ -128,6 +169,8 @@ function parseArgs(argv: readonly string[]): WrapperArgs {
     ...(runtimeId !== undefined ? { runtimeId } : {}),
     attachOnly: argv.includes('--attach-only'),
     ...(rolloutMarkerPath !== undefined ? { rolloutMarkerPath } : {}),
+    ...(tuiModel !== undefined ? { tuiModel } : {}),
+    ...(tuiReasoningEffort !== undefined ? { tuiReasoningEffort } : {}),
   }
 }
 
@@ -369,7 +412,13 @@ export async function runCodexTuiWrapper(argv: readonly string[]): Promise<void>
         const stderr: Buffer[] = []
         tui = spawn(
           options.command,
-          ['--remote', `unix://${options.socketPath}`, 'resume', threadId],
+          [
+            ...codexTuiModelFlags(options),
+            '--remote',
+            `unix://${options.socketPath}`,
+            'resume',
+            threadId,
+          ],
           {
             cwd: process.cwd(),
             env: process.env,

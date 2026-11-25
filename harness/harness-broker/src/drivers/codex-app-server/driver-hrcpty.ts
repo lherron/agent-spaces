@@ -8,7 +8,7 @@ import { type HrcptyEvent, HrcptyPtyController, HrcptyRpcError } from '../../run
 import { terminateProcess } from '../../runtime/signals'
 import { buildTmuxLaunchArtifactEnv } from '../../runtime/tmux-launch-exec'
 import type { ChildProcessInvocationSpec, DriverContext } from '../driver'
-import { buildCodexTuiWrapperArgvPrefix } from './codex-tui-wrapper'
+import { buildCodexTuiWrapperArgvPrefix, codexTuiModelArgs } from './codex-tui-wrapper'
 import type { CodexDriverEvents } from './driver-events'
 import type { CodexAppServerDriverOptions, CodexDriverState } from './driver-state'
 
@@ -121,6 +121,7 @@ export async function startCodexHrcptySeat(input: {
     '--invocation-id',
     ctx.invocationId,
     ...(input.runtimeId !== undefined ? ['--runtime-id', input.runtimeId] : []),
+    ...codexTuiModelArgs(s.driverSpec),
   ]
   const tuiEnv = buildTmuxLaunchArtifactEnv(
     { ...spec.process.lockedEnv, ...(ctx.dispatchEnv ?? {}) },

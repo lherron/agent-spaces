@@ -16,7 +16,7 @@ import {
   getInvocationRuntimeId,
   listenForHookEnvelopes,
 } from '../tmux-shared'
-import { buildCodexTuiWrapperArgvPrefix } from './codex-tui-wrapper'
+import { buildCodexTuiWrapperArgvPrefix, codexTuiModelArgs } from './codex-tui-wrapper'
 import type { CodexDriverControl } from './driver-control'
 import type { CodexDriverEvents } from './driver-events'
 import {
@@ -259,6 +259,7 @@ export function createCodexDriverStart(
               '--invocation-id',
               driverCtx.invocationId,
               ...(expectedRuntimeId !== undefined ? ['--runtime-id', expectedRuntimeId] : []),
+              ...codexTuiModelArgs(s.driverSpec),
             ],
             cwd: startSpec.process.cwd,
             env: {
