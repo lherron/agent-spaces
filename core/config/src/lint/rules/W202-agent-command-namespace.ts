@@ -11,6 +11,7 @@ import { readFile, readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { LintContext, LintWarning, SpaceLintData } from '../types.js'
 import { WARNING_CODES } from '../types.js'
+import { getCommandNames } from './command-names.js'
 
 /**
  * Pattern to match unqualified command references in markdown.
@@ -18,34 +19,6 @@ import { WARNING_CODES } from '../types.js'
  * or URLs like /path/to/something
  */
 const UNQUALIFIED_COMMAND_PATTERN = /(?<![:/\w])\/([a-z][a-z0-9-]*)(?![:/\w])/gi
-
-/**
- * Get all command names from a space's commands directory.
- */
-async function getCommandNames(pluginPath: string): Promise<string[]> {
-  const commandsDir = join(pluginPath, 'commands')
-
-  try {
-    const stats = await stat(commandsDir)
-    if (!stats.isDirectory()) {
-      return []
-    }
-
-    const entries = await readdir(commandsDir, { withFileTypes: true })
-    const commands: string[] = []
-
-    for (const entry of entries) {
-      if (entry.isFile() && entry.name.endsWith('.md')) {
-        // Remove .md extension to get command name
-        commands.push(entry.name.slice(0, -3))
-      }
-    }
-
-    return commands
-  } catch {
-    return []
-  }
-}
 
 /**
  * Get all agent markdown files from a space's agents directory.
