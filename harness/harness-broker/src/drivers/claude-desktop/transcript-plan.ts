@@ -155,15 +155,18 @@ const ANCHOR_BYTES = 64
 
 export function readClaudeDesktopCursor(stateDir: string): ClaudeDesktopCursor | undefined {
   const parsed = parseRow(safeRead(join(stateDir, CURSOR_FILE)) ?? '')
-  if (
-    parsed?.['v'] !== 1 ||
-    typeof parsed['transcriptPath'] !== 'string' ||
-    typeof parsed['byteOffset'] !== 'number' ||
-    typeof parsed['anchor'] !== 'string'
-  ) {
-    return undefined
-  }
-  return parsed as unknown as ClaudeDesktopCursor
+  return isClaudeDesktopCursor(parsed) ? parsed : undefined
+}
+
+function isClaudeDesktopCursor(
+  parsed: Record<string, unknown> | undefined
+): parsed is Record<string, unknown> & ClaudeDesktopCursor {
+  return (
+    parsed?.['v'] === 1 &&
+    typeof parsed['transcriptPath'] === 'string' &&
+    typeof parsed['byteOffset'] === 'number' &&
+    typeof parsed['anchor'] === 'string'
+  )
 }
 
 /** Record the boundary after a published row; tmp + rename so a crash leaves the old one. */
