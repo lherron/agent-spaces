@@ -15,15 +15,15 @@ This is the path from a project's declared composition
 against. The deterministic part of this pipeline is owned by
 `spaces-config`; launching and session lifecycle are owned by
 `spaces-execution` and the harness packages — see
-[harness architecture](harness-architecture.md).
+[harness architecture](/docs/agent-spaces/harness-architecture).
 
 ## Pipeline
 
 This adapter-backed pipeline applies to project bundles, including the Pi layout
 produced by default by `asp install`. Native `agent-harness` execution takes a
 separate path. It loads ordered ASP resources directly from a validated agent
-profile through `AgentSpacesResourceLoader`. See the
-[active runtime-boundary invariant](../architecture/records/invariants/agent-spaces.agent-harness-runtime-boundary.yaml).
+profile through `AgentSpacesResourceLoader`. The runtime boundary is defined in
+`architecture/records/invariants/agent-spaces.agent-harness-runtime-boundary.yaml`.
 The completed native release-worker design is preserved as attachment `ATT-00423`
 on T-08680. Retrieve it with `prae task attachment get ATT-00423`.
 
@@ -32,7 +32,7 @@ on T-08680. Retrieve it with `prae task attachment get ATT-00423`.
    `space.toml` in the composition.
 2. **Resolve selectors** — `space:<id>@<selector>` refs resolve to exact
    commits/content against the applicable locality (registry, dev, project,
-   agent) per the [composition model](spaces-composition-model.md).
+   agent) per the [composition model](/docs/agent-spaces/spaces-composition-model).
 3. **Compute dependency closure and load order** — walks `deps.spaces`,
    enforcing the locality dependency-edge rules; later `compose` entries win
    collisions.
@@ -52,8 +52,8 @@ on T-08680. Retrieve it with `prae task attachment get ATT-00423`.
    scope described below — the final, harness-ready directory tree for a target.
 8. **Hand the bundle to the selected implementation** — adapter-backed
    foreground runs use the bundle to prepare the command and environment.
-   Ordinary compilation resolves the driver and terminal recipe in the
-   [compiler catalog](../compiler/agent-spaces/src/harness-selection/catalog.ts).
+   Ordinary compilation resolves the driver and terminal recipe using
+   `compiler/agent-spaces/src/harness-selection/catalog.ts#HARNESS_CATALOG`.
 
 `asp install` runs steps 1-7 without launching (materializes bundles under
 `ASP_HOME`). `asp build [target] --output <dir>` materializes without launching.
@@ -85,7 +85,8 @@ via three distinct roots:
   agent homes and shared spaces under `<agentsRoot>/spaces/`.
 
 A project can declare `agents-root = "<relative-path>"` at the top level of
-`asp-targets.toml`. [Placement resolution](../core/config/src/store/runtime-placement.ts)
+`asp-targets.toml`. The resolver in
+`core/config/src/store/runtime-placement.ts#resolveAgentPlacementPaths`
 checks that project-local root first, followed by the canonical agents root,
 and takes the first `<agentId>/agent-profile.toml` it finds. A missing declared
 project-local root produces a warning. The same agent ID can resolve to a

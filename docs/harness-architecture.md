@@ -42,7 +42,7 @@ property-preservingly merges scalars; public contracts carry vocabulary and
 DTOs; neither can select a recipe. Builders receive the resolved recipe and
 cannot reinterpret raw selection fields.
 
-The [compiler catalog](../compiler/agent-spaces/src/harness-selection/catalog.ts)
+The catalog at `compiler/agent-spaces/src/harness-selection/catalog.ts#HARNESS_CATALOG`
 defines these driver and terminal choices.
 
 | Harness | `presentation: false` | `presentation: true` |
@@ -74,12 +74,12 @@ then one recipe. Omitted provider and model use the selected catalog defaults;
 changing only harness preserves explicit provider/model and refuses an
 incompatible combination.
 
-The ordinary public RPC is `aspc.compileHarnessInvocation`. The
-[aspd service](aspd.md) serves this v2 boundary, and the compiler resolves the
-execution recipe. The table describes selection. The serving daemon's mode
-also governs admission. For example, the Rust daemon in sole mode refuses
-`agent-harness` and `muse` compile requests with `unsupported_harness`. See the
-[front-door invariant](../architecture/records/invariants/agent-spaces.aspd-rust-front-door.yaml).
+The ordinary public RPC is `aspc.compileHarnessInvocation`. The aspd service
+serves this v2 boundary, and the compiler resolves the execution recipe. The
+service guide is `docs/aspd.md`. The table describes selection. The serving
+daemon's mode also governs admission. The Rust daemon in sole mode refuses
+`agent-harness` and `muse` compile requests with `unsupported_harness` under
+`architecture/records/invariants/agent-spaces.aspd-rust-front-door.yaml`.
 `compileRuntimePlan` is an internal compiler/SDK operation.
 Foreground `asp run` has a separate process-preparation path. Exact-profile,
 participant, Desktop, and observer flows have their own named operations.
