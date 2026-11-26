@@ -96,7 +96,9 @@ class Acceptance:
         # Exercise the macOS /tmp alias as well as the physical workspace trust path.
         directory = Path(tempfile.mkdtemp(prefix="agy-acceptance-", dir="/tmp"))
         subprocess.run(["git", "init", "-q", directory], check=True)
-        lane = "agy-gate-" + uuid4().hex[:10]
+        # HRC creates SCRATCH from the standing seat name. Keep it in the
+        # primary seat family recognized by scratch hygiene.
+        lane = "primary-agy-" + uuid4().hex[:10]
         self.seat = f"tabularasagem@agent-spaces:{lane}"
         self.state = {"seat": self.seat, "directory": str(directory)}
         self.write(self.state_path, self.state)

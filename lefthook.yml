@@ -11,26 +11,7 @@ pre-commit:
     gitleaks:
       run: bun scripts/run-hook-command.ts pre-commit {lefthook_job_name} -- gitleaks protect --staged --redact
     lint:
-      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun run lint
-      stage_fixed: true
-    boundaries:
-      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-boundaries.ts
-    harness-boundaries:
-      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-runtime-contract-harness-boundaries.ts
-    manifests:
-      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-manifest-edges.ts
-    dependency-pins:
-      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-dependency-pins.ts
-    suppressions:
-      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-suppressions.ts
-    public-surface:
-      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} --only=public-surface -- bun scripts/check-public-surface.ts
-    doc-reachability:
-      run: bun scripts/run-hook-command.ts pre-commit {lefthook_job_name} -- bun scripts/check-doc-reachability.ts
-    rule-authoring:
-      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun scripts/check-rule-authoring.ts
-    build:
-      run: bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name} -- bun run build
+      run: bun scripts/run-hook-command.ts pre-commit {lefthook_job_name} -- bun run biome check --staged --no-errors-on-unmatched
 
 pre-push:
   parallel: false

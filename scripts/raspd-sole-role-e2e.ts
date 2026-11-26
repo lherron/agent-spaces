@@ -74,7 +74,8 @@ const stamp = new Date()
 const out = resolve(arg('--out') ?? join(repo, '..', 'var', 'wrkq-artifacts', TASK, 'e2e', stamp))
 mkdirSync(out, { recursive: true })
 // Unix socket paths are limited to 104 bytes on macOS; the scratch root stays short.
-const scratchParent = join(repo, '..', 'var', 'scratch', 'agent-spaces', TASK)
+const scratchParent =
+  process.env.SCRATCH || join(repo, '..', 'var', 'scratch', 'agent-spaces', TASK)
 mkdirSync(scratchParent, { recursive: true })
 const scratch = mkdtempSync(join(resolve(scratchParent), 'sr-'))
 const ns = join(scratch, 'ns')

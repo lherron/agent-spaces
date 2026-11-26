@@ -23,7 +23,7 @@ if (!process.argv.includes('--release') || !process.argv.includes('--out')) {
 }
 const release = resolve(arg('--release') as string)
 const out = resolve(arg('--out') as string)
-const parent = resolve(repo, '../var/scratch/agent-spaces/T-13057')
+const parent = process.env.SCRATCH || resolve(repo, '../var/scratch/agent-spaces/T-13057')
 mkdirSync(parent, { recursive: true })
 mkdirSync(out, { recursive: true })
 const root = mkdtempSync(join(parent, 's-'))
