@@ -22,7 +22,7 @@ validators in `contracts/aspc-protocol/src/{types,schemas,inspection-params}.ts`
   `com.praesidium.aspd`): it writes `~/Library/LaunchAgents/<label>.plist` and `service/launchd-run.sh`, adopts the
   plist with `praesidium-adopt` (ProgramArguments start with `~/.local/bin/praesidium-launch`;
   `AssociatedBundleIdentifiers` `com.praesidium.AgentHost`), re-adopts before every bootstrap, and retries a
-  bootstrap error 5 for up to 4 attempts in all, 2 s apart (`BOOTSTRAP_ATTEMPTS`, `aspd-service/launchd.ts:22-23`;
+  bootstrap error 5 for up to 4 attempts in all, 2 s apart (`scripts/aspd-service/launchd.ts#BOOTSTRAP_ATTEMPTS` and `scripts/aspd-service/launchd.ts#BOOTSTRAP_RETRY_MS`;
   T-10818). Both plists set `ProcessType` `Interactive` (9f963a91, T-12535; without it launchd ran the daemons at
   PRI 20). Then stop is `bootout`, restart `kickstart -k`.
 - **Stable executables (T-12225, d6e8c923/c9f35e8f).** Activating a release whose `release.json` `capabilities` lists
@@ -246,8 +246,8 @@ sole-capable c842914d and legacy 61486292, through `T-14445/06-aspd/svc.sh` (`en
 system kernel record was absent throughout (T-13646). Not driven: the sole-enable refusal on a pre-sole release (no
 such release with raspd remains; legacy refuses earlier, on the fronted precondition), retention at depth (seven-release
 drive `T-12763/06-aspd`), a live `supervise` (see Gotchas), a codesign failure (activation would leave the namespace
-stopped on the old selection; source `aspd-service/launchd.ts:72-74`), retention's failed-`ps` path (source,
-`release-retention.ts:47-50`), a scratch raspd with the real `HOME` (T-13646), `log-dir`, `build-aspd-pilot-client`,
+stopped on the old selection; source `scripts/aspd-service/launchd.ts#prepareActivatedExecutables`), retention's failed-`ps` path (source,
+`scripts/aspd-service/release-retention.ts#runningCommands`), a scratch raspd with the real `HOME` (T-13646), `log-dir`, `build-aspd-pilot-client`,
 `compileHarnessInvocation` against aspd (it needs a full v2 compile request), and `aspc manifest|verify-release` (they
 need a request file and a corpus). Source only (`T-14445/sources/06.md`): `rpc.request` may carry `fallbackDetail`,
 `code`, `message` and `relay: upstream_failed`, a `parse_error` frame logs op `unmatched`, and Antigravity compiles are

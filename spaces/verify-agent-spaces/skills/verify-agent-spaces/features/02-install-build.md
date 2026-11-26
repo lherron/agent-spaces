@@ -20,7 +20,7 @@ plugin-artifacts,build}.ts` and `core/config/src/materializer/`, harness layouts
   rematerializes every bundle once. Install prunes old bundle versions itself (keeps 3, 15 min).
 - `--harness` accepts seven ids (`--help` still lists four): `claude-hrcpty` and `codex-hrcpty` lay out
   `<bundle>/<target>/claude-hrcpty|codex-hrcpty/` with the base adapter's content, but the `[harness] supports`
-  filter is an exact match (`plugin-artifacts.ts:149-155`) and no space lists an hrcpty id, so every
+  filter is an exact match (`core/config/src/orchestration/plugin-artifacts.ts#materializeSpaceEntry`) and no space lists an hrcpty id, so every
   `supports`-declaring space is dropped: the scratch `demo` claude-hrcpty bundle holds `000-avs-demo` only, against
   `000-avs-demo 001-defaults` for claude (product gap T-12329). HRC compiles materialize hrcpty seats as `claude`/`codex`
   (live clod and smokey bundles), so this hits only the direct CLI (2026-11-02, `T-12323/02-install-build/drive.txt`).
@@ -39,9 +39,9 @@ plugin-artifacts,build}.ts` and `core/config/src/materializer/`, harness layouts
   set autoInstall: true`, exit 1 (2026-11-23, `T-14445/02-install-build/drive.txt`).
 - `asp gc [--dry-run] [--project-only] [--scope-roots [--min-age-days N]]`: prints its root locks under `Roots:`
   (project `asp-lock.json`, `ASP_HOME/global-lock.json`), keeps snapshots and cache entries unless `--project-only`,
-  prunes stale bundle versions (keep 3, 15 min: `store/gc.ts:26-27`), and with `--scope-roots` retires unused
+  prunes stale bundle versions (keep 3, 15 min: `core/config/src/store/gc.ts#DEFAULT_BUNDLE_VERSION_RETAIN_RECENT` and `core/config/src/store/gc.ts#DEFAULT_BUNDLE_VERSION_MIN_AGE_MS`), and with `--scope-roots` retires unused
   `codex-homes/<scope>` roots. An unreadable or unparseable lock refuses `gc refused: <kind> lock <path> exists but
-  cannot be read: …`, exit 1. Per scope root the first rule that keeps it wins (`scope-root-gc.ts:197-229`):
+  cannot be read: …`, exit 1. Per scope root the first rule that keeps it wins (`core/config/src/store/scope-root-gc.ts#retireScopeRoots`):
   `kept (not-scope-root)` (name not `<project>_<agent>` or a runtime key), live reference (a running process's argv/env names a path under it; summary bucket `kept by live
   reference`), `kept (age)` (newest bundle version younger than `--min-age-days`, default 30), `kept
   (history)` (non-empty `sessions/`, 480d69ec), else `would retire` / `retired` (rename to `.retiring-*`, then rm). A
@@ -64,7 +64,7 @@ plugin-artifacts,build}.ts` and `core/config/src/materializer/`, harness layouts
 `ASP_USAGE_METRICS_VAR_ROOT` that `avs env` exports). Nothing here touches the canonical project or the shared
 ASP_HOME (`~/praesidium/var/spaces-repo`) as long as `ASP_HOME` is set, with one exception: `install` (without
 `--no-fetch`), `upgrade`, and the reinstall of `add`/`remove` run `git fetch origin --all` in the shared spaces root
-`~/praesidium/var/agents` (`core/config/src/orchestration/install.ts:150-156`; `add.ts:98`, `remove.ts:99` and
+`~/praesidium/var/agents` (`core/config/src/orchestration/install.ts#ensureRegistry`; `apps/cli/src/commands/add.ts#registerAddCommand`, `apps/cli/src/commands/remove.ts#registerRemoveCommand` and
 `upgrade` have no `--no-fetch`). Use `install --no-fetch`, `add`/`remove --no-install` followed by `install
 --no-fetch`, and `ASP_AGENTS_ROOT=<root>/agents-clone asp upgrade` with `git clone ~/praesidium/var/agents
 <root>/agents-clone` (the fetch then lands in the clone). Other seats fetch the shared root on their own (09:33Z and
@@ -109,7 +109,7 @@ mkdir <root>/init-probe && cd <root>/init-probe && asp init && cat asp-targets.t
 - The project id in bundle paths and `ASP_PROJECT` is the project directory's basename (`project` on a scratch).
 - **`install --asp-home` also creates `$HOME/.asp`** (product gap T-13647, same shape as doctor's T-11378): with
   `ASP_HOME` unset, bundles land in the flag dir but `cache projects repo snapshots sources tmp` appear under
-  `$HOME/.asp` (`install.ts:146` calls `ensureAspHome()` with no argument). Drive with `env -u ASP_HOME HOME=<tmp>`
+  `$HOME/.asp` (`core/config/src/orchestration/install.ts#ensureRegistry` calls `ensureAspHome()` with no argument). Drive with `env -u ASP_HOME HOME=<tmp>`
   (2026-11-16, `T-13644/02-install-build/drive.txt`).
 
 ## Proven when
@@ -124,5 +124,5 @@ Driven 2026-11-16 on scratch `t-13644` against checkout e805b5cb (T-13644):
 `var/wrkq-artifacts/T-13644/02-install-build/drive.txt` (T-11376's fix driven: roots, both refusals, every scope-root
 rule, one real retire on the scratch; T-11377, T-12329 and the new T-13647 reproduce; shared-root `FETCH_HEAD` mtime
 unchanged across the drive). Source only: the `add`/`remove` reinstall fetch (driven with `--no-install` to keep the
-shared root unwritten), the bundle prune constants (`store/gc.ts:26-27`: keep 3, 15 min) and the `live` scope-root
+shared root unwritten), the bundle prune constants (`core/config/src/store/gc.ts#DEFAULT_BUNDLE_VERSION_RETAIN_RECENT` and `core/config/src/store/gc.ts#DEFAULT_BUNDLE_VERSION_MIN_AGE_MS`: keep 3, 15 min) and the `live` scope-root
 rule (needs a process naming a scratch scope root).

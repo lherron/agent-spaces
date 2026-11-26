@@ -517,9 +517,9 @@ install no-sync="" force-sync="" force-link="": check-manager-space
 
 # ACP is deliberately NOT synced here. It pins ASP/HRC as operator-managed
 # producer tuples and advances them only through its own governed
-# `just advance-producers` inside a coordinated deployment window; its
-# docs/producer-advance.md names producer `sync-downstream` as one of the
-# mechanisms that must never move that tuple. ACP removed its own `sync:asp`
+# `just advance-producers` inside a coordinated deployment window.
+# Producer `sync-downstream` must never move that tuple.
+# ACP removed its own `sync:asp`
 # script in T-07626 (8626af2) and pinned exact versions in the same commit, so
 # calling it from here failed every install.
 #

@@ -17,7 +17,7 @@ muse,pi}`. Repo notes: `AGENTS.md` "Smoke Testing the CLI".
 - `--dry-run` prints the assembled system prompt (for profiled agents) and `── command ──` with the env prefix and
   argv; `--print-command` prints only the command (for agent-harness, a bare `agent-harness tui …` line).
 - Claude argv always has `--chrome`, and `--disallowedTools AskUserQuestion` unless the profile or target sets
-  `[claude] ask_user_question = true` (`claude-adapter.ts:500`; every profile that sets it, heather, mable, rector and vesta, sets
+  `[claude] ask_user_question = true` (`drivers/harness-claude/src/adapters/claude-adapter.ts#ClaudeAdapter.buildRunArgs`; every profile that sets it, heather, mable, rector and vesta, sets
   `false` on 2026-11-16; a scratch target with `true` drops the deny, `T-12763/03-run-launch/drive.txt`); a yolo profile adds
   `--dangerously-skip-permissions --permission-mode bypassPermissions`. Codex argv has `--enable goals` and
   `--dangerously-bypass-hook-trust`; a codex home of a target composing `praesidium-defaults` carries the
@@ -48,7 +48,7 @@ muse,pi}`. Repo notes: `AGENTS.md` "Smoke Testing the CLI".
 A scratch (`avs scratch up`, `asp install`) for plain targets; the canonical project (`cd ~/praesidium/agent-spaces`)
 with a scratch `ASP_HOME` for agent targets, so bundles land in the scratch. A dry-run there still rewrites the
 canonical `~/praesidium/agent-spaces/asp-lock.json` (gitignored) whenever the scratch bundle is missing
-(`drivers/execution/src/run.ts:284,293-298`; 2026-11-02 and 2026-11-23 shasum changed again; on 2026-11-23 the rewrite also added `locallarry` and dropped the stale `muse`/`mux` entries): on 2026-10-26 every `asp run larry --dry-run` into a fresh scratch ASP_HOME rewrote it with
+(`drivers/execution/src/run.ts#run`; 2026-11-02 and 2026-11-23 shasum changed again; on 2026-11-23 the rewrite also added `locallarry` and dropped the stale `muse`/`mux` entries): on 2026-10-26 every `asp run larry --dry-run` into a fresh scratch ASP_HOME rewrote it with
 only `generatedAt` changed (`T-11875/03-run-launch/drive.txt`). Harmless for content, but it is a write outside the
 scratch; say so in the evidence. Never run without `--dry-run` or
 `--print-command` in a drive: that launches a real harness.
@@ -85,7 +85,7 @@ asp gui cody --print-command
   system prompt inline: a profiled `--print-command` is tens of KB. Grep the drive, don't print it.
 - agent-harness direct execution refuses compiler-only options (`--yolo`, `--permission-mode`, `--inherit-*`,
   `--no-refresh`, `--settings`, `--extra-args`, `--debug`, `--remote-control`, `--name-prefix`): `agent-harness
-  direct execution does not support compiler-only option: --yolo`, exit 1 (`run.ts:268-289`; `--yolo` and
+  direct execution does not support compiler-only option: --yolo`, exit 1 (`apps/cli/src/commands/run.ts#rejectDirectCompilerOptions`; `--yolo` and
   `--permission-mode` driven). They work with `--harness claude|codex|muse` (2026-10-19,
   `T-11375/03-run-launch/drive.txt`).
 - A profile's `reasoning_effort` reaches a codex direct launch but not a Claude one (still so on 2026-11-23): `asp run stella --harness claude

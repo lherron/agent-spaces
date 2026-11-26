@@ -14,7 +14,7 @@ resources (`asp resources plan`). Code: `apps/cli/src/commands/self/`, `apps/cli
   (`--kind editable|shared-editable|derived|ephemeral`; a Claude seat now lists a `bundle-statusline` DRVD row).
   `asp self prompt reminder --recompute` re-renders the reminder from the current template (`source: template
   recompute`). A bad kind, topic or `--kind` is a usage error, exit 2.
-- `asp resolve-reminder [target]`: the rendered reminder text the SessionStart hook injects (`resolve-reminder.ts:200`
+- `asp resolve-reminder [target]`: the rendered reminder text the SessionStart hook injects (`apps/cli/src/commands/resolve-reminder.ts#registerResolveReminderCommand`
   writes it as is; exit 0 with empty stdout when nothing resolves).
 - `asp self memory inspect|read|paths|snapshot|diff|scan` read the memory targets (MEMORY.md per agent, the shared
   USER.md, SOUL.md) with char budgets; `add`, `replace` and `remove` write them, so a drive uses only the read verbs.
@@ -93,7 +93,7 @@ asp agents inspect --request $REQ --context $CTX --json
   format (2026-11-09, `T-12763/04-agent-introspection/drive.txt`).
 - **`agents inspect` refuses agents HRC won't launch.** foundry (`[placement] launch = "self-brokered"`) returns `ok:
   false` with `agent_self_brokered` and stella (`participant-only`) with `agent_participant_only`, exit 1
-  (`compile-runtime-plan.ts:22-60`), while `asp run`/`asp agent` still print a launch for both (feature 3). Their
+  (`compiler/agent-spaces/src/compile-runtime-plan.ts#LAUNCH_REFUSALS`), while `asp run`/`asp agent` still print a launch for both (feature 3). Their
   catalog rows have 0 errors (2026-11-16, `T-13644/04-agent-introspection/{request,context}-{foundry,stella}.json`).
 - The prompt's scope line renders from the assigned scope (`ScopeRef: agent:cody:project:agent-spaces` in the pinned
   inspect, no literal `{{agentProjectScopeRef}}` there, in `resolve-reminder clod` or in `self prompt reminder

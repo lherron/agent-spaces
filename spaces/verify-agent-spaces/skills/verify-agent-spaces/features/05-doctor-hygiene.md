@@ -22,7 +22,7 @@ the agent-hygiene lint over skills and agent roots (`asp lint --hygiene`), and t
 - `asp lint --judge <unit path>` (its own flag, not a hygiene option): runs the tier-2 rubric judge over exactly one
   unit through the agent-loop SDK (scope `clod@agent-loop:hygiene-judge/worker`). Zero units refuses `No hygiene unit
   found at <path>` and more than one `--judge assesses ONE unit; <path> resolves to N units`, both exit 1 before any
-  model run (`lint-hygiene.ts:177-187`).
+  model run (`apps/cli/src/commands/lint-hygiene.ts#runJudgeCommand`).
 - `asp token-rent [--agent a] [--json] [--now iso] [--usage-since iso] [--since ref]`: resident system-prompt tokens
   per agent priced against HRC run frequency from `var/state/hrc/state.sqlite`. The prompt comes from the agent's
   newest usable `broker_invocations` spec (the newest per scope, then the first, newest-first, whose prompt is still
@@ -82,7 +82,7 @@ sqlite3 -readonly ~/praesidium/var/state/hrc/state.sqlite \
 - `asp lint --hygiene --update-baseline` writes `.hygiene-baseline.json` into the target: drive it on a scratch copy
   (`cp -R ~/praesidium/var/agents/clod <root>/hyg`; 6 entries, then `--baseline` leaves none, 2026-11-09,
   `T-12763/05-doctor-hygiene/drive.txt`). `--judge` on a single unit launches a model run
-  (`lint-hygiene.ts:120-171`); drive only its refusals.
+  (`apps/cli/src/commands/lint-hygiene.ts#runJudgeViaSdk`); drive only its refusals.
 
 ## Proven when
 

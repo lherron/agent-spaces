@@ -61,7 +61,7 @@
     {"name": "WRKQ_DB", "format": "wrkq target: the daemon's HRC_WRKQ_DB, else its WRKQ_DB", "class": "runtime plumbing", "managed": [{"writer": "hrc.dispatch"}], "unmanaged": [], "readers": []},
     {"name": "WRKQ_DB_PATH", "format": "forced empty", "class": "runtime plumbing", "managed": [{"writer": "hrc.dispatch", "when": "written empty"}, {"writer": "login-profile", "when": "~/.zshenv unsets it"}], "unmanaged": [], "readers": []},
     {"name": "WRKQ_DB_PATH_FILE", "format": "forced empty", "class": "runtime plumbing", "managed": [{"writer": "hrc.dispatch", "when": "written empty"}], "unmanaged": [], "readers": []},
-    {"name": "WRKQ_ACTOR", "format": "bare agent id", "class": "removed", "managed": [{"writer": "hrc.dispatch", "when": "broker.rs:597 today; this write is deleted"}, {"writer": "login-profile", "when": "~/.zshenv unsets it before the harness starts"}], "unmanaged": [], "readers": []},
+    {"name": "WRKQ_ACTOR", "format": "bare agent id", "class": "removed", "managed": [], "unmanaged": [], "readers": []},
     {"name": "ASP_HOME", "format": "absolute path of the ASP home", "class": "ASP materialization", "managed": [{"writer": "asp.lockedEnv"}], "unmanaged": [{"writer": "asp.lockedEnv"}], "readers": []},
     {"name": "ASP_AGENTS_ROOT", "format": "absolute path of the agents root", "class": "ASP materialization", "managed": [{"writer": "asp.lockedEnv"}], "unmanaged": [{"writer": "asp.lockedEnv"}], "readers": []},
     {"name": "ASP_AGENT_ROOT", "format": "absolute path of the agent's directory", "class": "ASP materialization", "managed": [{"writer": "asp.lockedEnv"}], "unmanaged": [{"writer": "asp.lockedEnv"}], "readers": []},

@@ -36,8 +36,9 @@ operator-cli.ts,invocation-*.ts,drivers/}`, protocol in `contracts/harness-broke
 - The hook verbs (`claude-hook`, `claude-hook-decision`, `codex-hook`) refuse `<verb> requires --socket <path>`, exit 1,
   without `--socket`. A delivery failure (no broker at the socket) exits 0 with empty stdout and `<verb> delivery
   failed: …` on stderr, so a hook never fails the harness. Since 4d3978d1 a 30 s wall deadline ends each one, exit 0,
-  even while stdin stays open (`hook-bridge-transport.ts:104,125`), and `statusline.sh` runs its background bridge
-  under `ulimit -t 3` (`drivers/harness-claude/assets/statusline.sh:35`), so a spinning bridge dies after 3 s of CPU.
+  even while stdin stays open (`harness/harness-broker/src/drivers/hook-bridge-transport.ts#HOOK_BRIDGE_DEADLINE_MS` in `harness/harness-broker/src/drivers/hook-bridge-transport.ts#runHookBridgeCli`), and `drivers/harness-claude/assets/statusline.sh` limits its background bridge to 3 s of CPU with `ulimit -t 3`.
+  The Claude driver passes the bridge command through
+  `harness/harness-broker/src/drivers/claude-code-tmux/status-line.ts#CLAUDE_STATUS_LINE_BRIDGE_ENV`.
 - `antigravity-hook` keeps none of those rules: it takes its socket from `HARNESS_BROKER_CALLBACK_SOCKET` (no
   `--socket`), and with none or a dead one it prints a fail-open answer (`{"decision":"allow"}` for PreToolUse,
   `{"decision":"stop"}` for Stop, `{}` with no event) and exits 0. It also has no wall deadline: with stdin left open it
@@ -46,7 +47,7 @@ operator-cli.ts,invocation-*.ts,drivers/}`, protocol in `contracts/harness-broke
 - The Claude and Codex hook bridges ask HRC's mail gate (`HRC_MAIL_STOP_SOCKET`, with `HARNESS_BROKER_RUNTIME_ID`)
   before posting to the broker: a Stop hook POSTs `/v1/internal/mail/stop-decision`, a Claude PostToolUse
   `/v1/internal/mail/hint-decision`. Since c7468d1b (R-00605) both carry `X-Praesidium-Caller`: `PRAESIDIUM_CALLER`,
-  else `ASP_HANDLE`, omitted when unset or outside the caller grammar (`mail-stop-gate.ts:130-137`).
+  else `ASP_HANDLE`, omitted when unset or outside the caller grammar (`harness/harness-broker/src/drivers/mail-stop-gate.ts#resolveCaller`).
 - The pre-HRC matrix (`bun run smoke:matrix [--config row] [--compile-transport sdk|aspc-rpc] [--json]`): compiles a
   v2 request, starts the broker through the compiled dispatch request, drives a turn, and checks the event types,
   terminal turns and continuation. Rows: `fake-codex`, `unix-jsonrpc-ndjson` (shim-backed, no model), and
@@ -83,9 +84,9 @@ The stub, a spinning bridge for the `ulimit -t 3` check and the commands are in 
 
 ## Gotchas
 
-- **An inherited observer socket kills a stdio broker.** `run` reads `HARNESS_BROKER_OBSERVER_SOCKET` (`cli.ts:155-170`;
+- **An inherited observer socket kills a stdio broker.** `run` reads `HARNESS_BROKER_OBSERVER_SOCKET` (`harness/harness-broker/src/cli.ts#readObserverFlags`;
   HRC sets it for codex/muse viewer seats) and refuses `Broker socket already in use by a live listener: <path>`
-  (`socket-path.ts:44`) when
+  (`harness/harness-broker/src/socket-path.ts#reclaimStaleSocket`) when
   that path is live, before any reply; a non-`observe` `HARNESS_BROKER_OBSERVER_MODE` exits too. `avs broker-hello`
   (and so `avs doctor`) drops `HARNESS_BROKER_OBSERVER_*` from its child since T-12323; strip them yourself for the
   matrix (2026-11-02, `T-12323/index/avs-observer-gap.txt`).
@@ -104,7 +105,7 @@ The stub, a spinning bridge for the `ulimit -t 3` check and the commands are in 
   c73f663d); strip them as above. That doc calls the check `real-claude-tmux-midturn`, which is not a matrix row: `--config real-claude-tmux-midturn` throws `--config
   must name one of: …`, exit 1 (2026-10-19, `T-11375/08-harness-broker/drive.txt`).
 - The matrix does not use `~/.bun/bin/harness-broker`; it spawns `harness/harness-broker/bin/harness-broker.js`
-  next to the script, so a run from a scratch clone tests that clone (source, `pre-hrc-broker-matrix-e2e.ts:658`).
+  next to the script, so a run from a scratch clone tests that clone (source, `scripts/pre-hrc-broker-matrix-e2e.ts#runRow`).
   Its hello offers only `harness-broker/0.2` (`:664`), so the shim rows prove 0.2 negotiation; `broker-hello` offers
   0.3 and 0.2 and gets 0.3 (2026-10-26, `T-11875/08-harness-broker/drive.txt`).
 - `smoke:matrix --json` stdout starts with a `<row>: OK` status line before the JSON report; parse from the first

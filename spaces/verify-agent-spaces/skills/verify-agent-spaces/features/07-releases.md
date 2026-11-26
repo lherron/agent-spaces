@@ -17,11 +17,11 @@ hrc-runtime follows. `just install` on the canonical checkout does both and acti
   bun-compiled`, `mutableCheckoutReferences: false`). Releases built at or after c9f35e8f carry the capability
   `aspd.fixed-executable-release-root/v1` beside `harness-broker.offline-evidence/v1`; without it aspd activates the
   release in legacy in-place mode (feature 6). Builds since a7bc2bf7 add a third, `raspd.sole/v1`
-  (`scripts/asp-release.ts:802-806`); a sole namespace refuses a release without it (feature 6). Each top-level executable is a launcher script over `libexec/<name>`.
+  (`scripts/asp-release.ts#buildRelease`); a sole namespace refuses a release without it (feature 6). Each top-level executable is a launcher script over `libexec/<name>`.
   No hrc-pty or hrcpty executable ships in a release. After the four Bun
   compiles it builds `raspd` (`cargo build --release --locked`, recorded in `release.json` as `runtimeClosure:
   cargo-native`; the top-level `runtimeClosure` still reads `bun-compiled`). On Apple silicon with `rbuild` on PATH the
-  cargo build runs on build1 and the binary is pulled back (8a165df8, `scripts/asp-release.ts:281-337`; stderr
+  cargo build runs on build1 and the binary is pulled back (8a165df8, `scripts/asp-release.ts#buildNativeExecutable`; stderr
   `rbuild: running on build1:<clone>` and `rbuild: pulled …/aarch64-apple-darwin/release/raspd`). rbuild falls back to a
   local build when build1 is unreachable, and `RBUILD_LOCAL=1` or `~/.rbuild-off` forces local; elsewhere it builds
   with local cargo. The commit reaches raspd through `--config env.RASPD_SOURCE_COMMIT`, and a rebuild at another commit
@@ -52,8 +52,8 @@ hrc-runtime follows. `just install` on the canonical checkout does both and acti
 - `just conform-aspd <release> <workdir> <artifact_dir>` (d6417322, `conformance/aspd/run.py`): grades a built
   release's raspd observation kernel with cardo's wire and embed suites at the cardo commit `Cargo.lock` pins (since
   f5a5fc73; it matches the cached checkout by its commit, not the directory name). It needs python3 and that commit in
-  `~/.cargo/git/checkouts/cardo-*/` (refuses `Cargo checkout for cardo <rev> missing` otherwise). It starts its own raspd with `--kernel-root <workdir>/var --kernel-instance conformance` (`profile.py:79`,
-  `embed_profile.py:22`), so it never touches the system kernel record. Output: `cardo=<rev> release=… protocol=3`, a
+  `~/.cargo/git/checkouts/cardo-*/` (refuses `Cargo checkout for cardo <rev> missing` otherwise). It starts its own raspd with `--kernel-root <workdir>/var --kernel-instance conformance` (`conformance/aspd/profile.py#AspdProfile.serve_argv`,
+  `conformance/aspd/embed_profile.py#make_profile`), so it never touches the system kernel record. Output: `cardo=<rev> release=… protocol=3`, a
   `cardo-cli=<path> version=…` line naming the installed `cardo` CLI (`lattice-v1.21 · protocol 3.11 · a86ecba` on
   2026-11-23, newer than the 98881e9f pin), `aspd: 8/8 green, 23 n/a`, and the embed results (`record`,
   `standard_ops`, `surface`, `log` pass; `reload` n/a), exit 0; about 4 s (2026-11-23).
@@ -125,7 +125,7 @@ env PATH=$HOME/.bun/bin:/usr/bin:/bin bun scripts/asp-release.ts build --output-
   wire protocol 3.11) and max3's cache had it. The week to 2026-11-16 moved it five times (then c3639924, tag lattice-v1).
   max3's `~/.cargo/git` had it, so build1's cargo build needed no fetch; a pass after a new pin may find it missing and
   need ssh to GitHub for the first build. Check with `ls -d ~/.cargo/git/checkouts/cardo-*/<rev7>` before the build.
-- rbuild only mirrors a clone under `$HOME`; one under `/tmp` fails on build1 (`scripts/lib/scratch-release.ts:56-69`).
+- rbuild only mirrors a clone under `$HOME`; one under `/tmp` fails on build1 (`scripts/lib/scratch-release.ts#CLONE_ROOT`).
   The avs scratch root is under `$HOME`.
 - The dirty-tree canonical-publish refusal is an uncaught throw: its last stderr line is `Bun v1.3.14 (macOS arm64)`,
   and the message `Canonical publication requires a clean source tree` sits in the stack excerpt above it, exit 1.
@@ -147,4 +147,4 @@ in the same clone recompiled raspd with that commit in 14 s; `conform-aspd` 8/8 
 asp-c842914dbbc6-… (T-14445): `var/wrkq-artifacts/T-14445/07-releases/drive.txt`, `rb.err`, `rb2.err`, `conform/`,
 `conform.out`. Not driven: `just install` (operator-scale;
 publishes, syncs hrc-runtime and activates the system aspd), rbuild's unreachable-host local fallback (a cold ~150 s
-max3 cargo build; source `asp-release.ts:281-337`), `publish-worktree-dry-run`, and any non-dry-run publish.
+max3 cargo build; source `scripts/asp-release.ts#buildNativeExecutable`), `publish-worktree-dry-run`, and any non-dry-run publish.

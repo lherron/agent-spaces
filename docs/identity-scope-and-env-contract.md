@@ -184,7 +184,7 @@ Classes:
 | `WRKQ_DB` | wrkq target: the daemon's HRC_WRKQ_DB, else its WRKQ_DB | runtime plumbing | hrc.dispatch | not written | none recorded |
 | `WRKQ_DB_PATH` | forced empty | runtime plumbing | hrc.dispatch (written empty); login-profile (~/.zshenv unsets it) | not written | none recorded |
 | `WRKQ_DB_PATH_FILE` | forced empty | runtime plumbing | hrc.dispatch (written empty) | not written | none recorded |
-| `WRKQ_ACTOR` | bare agent id | removed | hrc.dispatch (broker.rs:597 today; this write is deleted); login-profile (~/.zshenv unsets it before the harness starts) | not written | none recorded |
+| `WRKQ_ACTOR` | bare agent id | removed | not written | not written | none recorded |
 | `ASP_HOME` | absolute path of the ASP home | ASP materialization | asp.lockedEnv | asp.lockedEnv | none recorded |
 | `ASP_AGENTS_ROOT` | absolute path of the agents root | ASP materialization | asp.lockedEnv | asp.lockedEnv | none recorded |
 | `ASP_AGENT_ROOT` | absolute path of the agent's directory | ASP materialization | asp.lockedEnv | asp.lockedEnv | none recorded |

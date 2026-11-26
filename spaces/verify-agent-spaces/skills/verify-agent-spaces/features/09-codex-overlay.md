@@ -57,7 +57,7 @@ bun scripts/sync-agent-to-codex-default.ts --to $X --bogus                      
     its `hooks.json`), but the overlay writes `hooks.json` from its own two scripts only: 0 entries, no `space-hooks/`
   (2026-10-19, `T-11375/09-codex-overlay/drive.txt`; again 2026-11-09).
 - `--asp-home` and `--agents-root` default to env `ASP_HOME`/`ASP_AGENTS_ROOT`, which a seat exports: drop
-  `--asp-home` and the plan materializes into the seat's real ASP_HOME (source, `sync-agent-to-codex-default.ts:118-119`;
+  `--asp-home` and the plan materializes into the seat's real ASP_HOME (source, `scripts/sync-agent-to-codex-default.ts#parseArgs`;
   both variables are set in a clod seat). The script writes usage `paths` rows like `asp` does; export the
   scratch `ASP_USAGE_METRICS_VAR_ROOT` (`avs env`) first.
 - The plan materializes the agent under `--asp-home` even without `--apply` (`codex-homes/praesidium_codex-default-
