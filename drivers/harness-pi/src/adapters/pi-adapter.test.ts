@@ -8,15 +8,18 @@
  */
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  type ComposeTargetInput,
+  type ComposedTargetBundle,
   type MaterializeSpaceInput,
   type ProjectManifest,
   type ResolvedSpaceManifest,
   type SpaceId,
   type SpaceKey,
+  type SpaceRefString,
   asSpaceId,
 } from 'spaces-config'
 import {
@@ -72,6 +75,25 @@ function argValue(args: string[], flag: string): string | undefined {
   return index === -1 ? undefined : args[index + 1]
 }
 
+async function writeMockPi(path: string, version: string, helpLines: string[] = []) {
+  const help = helpLines.map((line) => `  echo "${line}"`).join('\n')
+  await writeFile(
+    path,
+    `#!/bin/bash
+if [[ "$1" == "--version" ]]; then
+  echo "${version}"
+  exit 0
+fi
+if [[ "$1" == "--help" ]]; then
+${help}
+  exit 0
+fi
+exit 0
+`
+  )
+  await chmod(path, 0o755)
+}
+
 describe('PiAdapter', () => {
   let adapter: PiAdapter
 
@@ -120,22 +142,10 @@ describe('PiAdapter', () => {
 
     test('returns available: true when pi is found', async () => {
       // Create a mock pi that outputs version info and help
-      await writeFile(
-        mockPiPath,
-        `#!/bin/bash
-if [[ "$1" == "--version" ]]; then
-  echo "1.2.3"
-  exit 0
-fi
-if [[ "$1" == "--help" ]]; then
-  echo "--extension  Load an extension"
-  echo "--skills     Skills directory"
-  exit 0
-fi
-exit 0
-`
-      )
-      await chmod(mockPiPath, 0o755)
+      await writeMockPi(mockPiPath, '1.2.3', [
+        '--extension  Load an extension',
+        '--skills     Skills directory',
+      ])
       process.env['PI_PATH'] = mockPiPath
 
       const result = await adapter.detect()
@@ -145,17 +155,7 @@ exit 0
     })
 
     test('returns version when detected', async () => {
-      await writeFile(
-        mockPiPath,
-        `#!/bin/bash
-if [[ "$1" == "--version" ]]; then
-  echo "2.0.1"
-  exit 0
-fi
-exit 0
-`
-      )
-      await chmod(mockPiPath, 0o755)
+      await writeMockPi(mockPiPath, '2.0.1')
       process.env['PI_PATH'] = mockPiPath
 
       const result = await adapter.detect()
@@ -175,14 +175,7 @@ exit 0
     })
 
     test('ASP_PI_PATH takes precedence over PI_PATH', async () => {
-      await writeFile(
-        mockPiPath,
-        `#!/bin/bash
-if [[ "$1" == "--version" ]]; then echo "3.1.4"; exit 0; fi
-exit 0
-`
-      )
-      await chmod(mockPiPath, 0o755)
+      await writeMockPi(mockPiPath, '3.1.4')
       const originalAspPiPath = process.env['ASP_PI_PATH']
       try {
         // ASP_PI_PATH points at the real shim; PI_PATH at a bogus path. The
@@ -200,22 +193,10 @@ exit 0
     })
 
     test('includes capabilities when available', async () => {
-      await writeFile(
-        mockPiPath,
-        `#!/bin/bash
-if [[ "$1" == "--version" ]]; then
-  echo "1.0.0"
-  exit 0
-fi
-if [[ "$1" == "--help" ]]; then
-  echo "--extension  Load extensions"
-  echo "--skills     Skills directory"
-  exit 0
-fi
-exit 0
-`
-      )
-      await chmod(mockPiPath, 0o755)
+      await writeMockPi(mockPiPath, '1.0.0', [
+        '--extension  Load extensions',
+        '--skills     Skills directory',
+      ])
       process.env['PI_PATH'] = mockPiPath
 
       const result = await adapter.detect()
@@ -494,12 +475,26 @@ export function tool() { return 'built with options'; }
     let outputDir: string
     let artifact1Dir: string
     let artifact2Dir: string
+    let space1: ComposeTargetInput['artifacts'][number]
+    let space2: ComposeTargetInput['artifacts'][number]
 
     beforeEach(async () => {
       tmpDir = join(tmpdir(), `pi-adapter-compose-${Date.now()}`)
       outputDir = join(tmpDir, 'output')
       artifact1Dir = join(tmpDir, 'artifact1')
       artifact2Dir = join(tmpDir, 'artifact2')
+      space1 = {
+        spaceKey: createSpaceKey('space1', 'abc'),
+        spaceId: 'space1',
+        artifactPath: artifact1Dir,
+        pluginName: 'plugin1',
+      }
+      space2 = {
+        spaceKey: createSpaceKey('space2', 'def'),
+        spaceId: 'space2',
+        artifactPath: artifact2Dir,
+        pluginName: 'plugin2',
+      }
 
       await mkdir(outputDir, { recursive: true })
       await mkdir(artifact1Dir, { recursive: true })
@@ -510,6 +505,19 @@ export function tool() { return 'built with options'; }
       await rm(tmpDir, { recursive: true, force: true })
     })
 
+    function composeInput(artifacts: ComposeTargetInput['artifacts']): ComposeTargetInput {
+      const loadOrder = artifacts.map(({ spaceKey }) => spaceKey)
+      return {
+        targetName: 'test-target',
+        // These cases use bare space IDs, as the adapter uses the resolved artifacts.
+        compose: artifacts.map(({ spaceId }) => spaceId as SpaceRefString),
+        roots: loadOrder.slice(0, 1),
+        loadOrder,
+        artifacts,
+        settingsInputs: [],
+      }
+    }
+
     test('merges extensions from multiple artifacts', async () => {
       // Create extensions in artifact1
       await mkdir(join(artifact1Dir, 'extensions'), { recursive: true })
@@ -519,27 +527,7 @@ export function tool() { return 'built with options'; }
       await mkdir(join(artifact2Dir, 'extensions'), { recursive: true })
       await writeFile(join(artifact2Dir, 'extensions/space2__tool2.js'), 'export default {}')
 
-      const input = {
-        targetName: 'test-target',
-        compose: ['space1' as any, 'space2' as any],
-        roots: ['space1@abc' as SpaceKey],
-        loadOrder: ['space1@abc' as SpaceKey, 'space2@def' as SpaceKey],
-        artifacts: [
-          {
-            spaceKey: 'space1@abc' as SpaceKey,
-            spaceId: 'space1',
-            artifactPath: artifact1Dir,
-            pluginName: 'plugin1',
-          },
-          {
-            spaceKey: 'space2@def' as SpaceKey,
-            spaceId: 'space2',
-            artifactPath: artifact2Dir,
-            pluginName: 'plugin2',
-          },
-        ],
-        settingsInputs: [],
-      }
+      const input = composeInput([space1, space2])
 
       const result = await adapter.composeTarget(input, outputDir, {})
 
@@ -564,27 +552,7 @@ export function tool() { return 'built with options'; }
       await mkdir(join(artifact2Dir, 'skills/skill2'), { recursive: true })
       await writeFile(join(artifact2Dir, 'skills/skill2/README.md'), '# Skill 2')
 
-      const input = {
-        targetName: 'test-target',
-        compose: ['space1' as any, 'space2' as any],
-        roots: ['space1@abc' as SpaceKey],
-        loadOrder: ['space1@abc' as SpaceKey, 'space2@def' as SpaceKey],
-        artifacts: [
-          {
-            spaceKey: 'space1@abc' as SpaceKey,
-            spaceId: 'space1',
-            artifactPath: artifact1Dir,
-            pluginName: 'plugin1',
-          },
-          {
-            spaceKey: 'space2@def' as SpaceKey,
-            spaceId: 'space2',
-            artifactPath: artifact2Dir,
-            pluginName: 'plugin2',
-          },
-        ],
-        settingsInputs: [],
-      }
+      const input = composeInput([space1, space2])
 
       const result = await adapter.composeTarget(input, outputDir, {})
 
@@ -616,21 +584,7 @@ script = "scripts/validate.sh"
         '#!/bin/bash\necho "validating"'
       )
 
-      const input = {
-        targetName: 'test-target',
-        compose: ['space1' as any],
-        roots: ['space1@abc' as SpaceKey],
-        loadOrder: ['space1@abc' as SpaceKey],
-        artifacts: [
-          {
-            spaceKey: 'space1@abc' as SpaceKey,
-            spaceId: 'space1',
-            artifactPath: artifact1Dir,
-            pluginName: 'plugin1',
-          },
-        ],
-        settingsInputs: [],
-      }
+      const input = composeInput([space1])
 
       const result = await adapter.composeTarget(input, outputDir, {})
 
@@ -675,21 +629,7 @@ script = "scripts/validate.sh"
         '#!/bin/bash\necho "motd"'
       )
 
-      const input = {
-        targetName: 'test-target',
-        compose: ['space1' as any],
-        roots: ['space1@abc' as SpaceKey],
-        loadOrder: ['space1@abc' as SpaceKey],
-        artifacts: [
-          {
-            spaceKey: 'space1@abc' as SpaceKey,
-            spaceId: 'space1',
-            artifactPath: artifact1Dir,
-            pluginName: 'plugin1',
-          },
-        ],
-        settingsInputs: [],
-      }
+      const input = composeInput([space1])
 
       const result = await adapter.composeTarget(input, outputDir, {})
 
@@ -732,21 +672,7 @@ script = "scripts/validate.sh"
         '#!/bin/bash\necho "motd"'
       )
 
-      const input = {
-        targetName: 'test-target',
-        compose: ['space1' as any],
-        roots: ['space1@abc' as SpaceKey],
-        loadOrder: ['space1@abc' as SpaceKey],
-        artifacts: [
-          {
-            spaceKey: 'space1@abc' as SpaceKey,
-            spaceId: 'space1',
-            artifactPath: artifact1Dir,
-            pluginName: 'plugin1',
-          },
-        ],
-        settingsInputs: [],
-      }
+      const input = composeInput([space1])
 
       await adapter.composeTarget(input, outputDir, {})
 
@@ -775,21 +701,7 @@ script = "scripts/validate.sh"
         })
       )
 
-      const input = {
-        targetName: 'test-target',
-        compose: ['space1' as any],
-        roots: ['space1@abc' as SpaceKey],
-        loadOrder: ['space1@abc' as SpaceKey],
-        artifacts: [
-          {
-            spaceKey: 'space1@abc' as SpaceKey,
-            spaceId: 'space1',
-            artifactPath: artifact1Dir,
-            pluginName: 'plugin1',
-          },
-        ],
-        settingsInputs: [],
-      }
+      const input = composeInput([space1])
 
       await adapter.composeTarget(input, outputDir, {})
 
@@ -819,21 +731,7 @@ blocking = true
         '#!/bin/bash\necho "blocking"'
       )
 
-      const input = {
-        targetName: 'test-target',
-        compose: ['space1' as any],
-        roots: ['space1@abc' as SpaceKey],
-        loadOrder: ['space1@abc' as SpaceKey],
-        artifacts: [
-          {
-            spaceKey: 'space1@abc' as SpaceKey,
-            spaceId: 'space1',
-            artifactPath: artifact1Dir,
-            pluginName: 'plugin1',
-          },
-        ],
-        settingsInputs: [],
-      }
+      const input = composeInput([space1])
 
       const result = await adapter.composeTarget(input, outputDir, {})
 
@@ -850,27 +748,7 @@ blocking = true
       await writeFile(join(artifact1Dir, 'extensions/shared__tool.js'), 'export default {}')
       await writeFile(join(artifact2Dir, 'extensions/shared__tool.js'), 'export default {}')
 
-      const input = {
-        targetName: 'test-target',
-        compose: ['space1' as any, 'space2' as any],
-        roots: ['space1@abc' as SpaceKey],
-        loadOrder: ['space1@abc' as SpaceKey, 'space2@def' as SpaceKey],
-        artifacts: [
-          {
-            spaceKey: 'space1@abc' as SpaceKey,
-            spaceId: 'space1',
-            artifactPath: artifact1Dir,
-            pluginName: 'plugin1',
-          },
-          {
-            spaceKey: 'space2@def' as SpaceKey,
-            spaceId: 'space2',
-            artifactPath: artifact2Dir,
-            pluginName: 'plugin2',
-          },
-        ],
-        settingsInputs: [],
-      }
+      const input = composeInput([space1, space2])
 
       const result = await adapter.composeTarget(input, outputDir, {})
 
@@ -892,21 +770,7 @@ paths = ["/tmp"]
 `
       )
 
-      const input = {
-        targetName: 'test-target',
-        compose: ['space1' as any],
-        roots: ['space1@abc' as SpaceKey],
-        loadOrder: ['space1@abc' as SpaceKey],
-        artifacts: [
-          {
-            spaceKey: 'space1@abc' as SpaceKey,
-            spaceId: 'space1',
-            artifactPath: artifact1Dir,
-            pluginName: 'plugin1',
-          },
-        ],
-        settingsInputs: [],
-      }
+      const input = composeInput([space1])
 
       const result = await adapter.composeTarget(input, outputDir, {})
 
@@ -919,14 +783,7 @@ paths = ["/tmp"]
       // Create existing file
       await writeFile(join(outputDir, 'old-file.txt'), 'old')
 
-      const input = {
-        targetName: 'test-target',
-        compose: [],
-        roots: [],
-        loadOrder: [],
-        artifacts: [],
-        settingsInputs: [],
-      }
+      const input = composeInput([])
 
       await adapter.composeTarget(input, outputDir, { clean: true })
 
@@ -936,21 +793,7 @@ paths = ["/tmp"]
     })
 
     test('always generates the HRC events bridge extension even when no ASP hooks exist', async () => {
-      const input = {
-        targetName: 'test-target',
-        compose: ['space1' as any],
-        roots: ['space1@abc' as SpaceKey],
-        loadOrder: ['space1@abc' as SpaceKey],
-        artifacts: [
-          {
-            spaceKey: 'space1@abc' as SpaceKey,
-            spaceId: 'space1',
-            artifactPath: artifact1Dir,
-            pluginName: 'plugin1',
-          },
-        ],
-        settingsInputs: [],
-      }
+      const input = composeInput([space1])
 
       await adapter.composeTarget(input, outputDir, {})
 
@@ -964,14 +807,7 @@ paths = ["/tmp"]
     })
 
     test('HRC events bridge subscribes to Pi lifecycle and stream events', async () => {
-      const input = {
-        targetName: 'test-target',
-        compose: [],
-        roots: [],
-        loadOrder: [],
-        artifacts: [],
-        settingsInputs: [],
-      }
+      const input = composeInput([])
 
       await adapter.composeTarget(input, outputDir, {})
 
@@ -995,14 +831,7 @@ paths = ["/tmp"]
     })
 
     test('HRC events bridge forwards structured payloads through HRC_LAUNCH_HOOK_CLI', async () => {
-      const input = {
-        targetName: 'test-target',
-        compose: [],
-        roots: [],
-        loadOrder: [],
-        artifacts: [],
-        settingsInputs: [],
-      }
+      const input = composeInput([])
 
       await adapter.composeTarget(input, outputDir, {})
 
@@ -1014,14 +843,7 @@ paths = ["/tmp"]
     })
 
     test('HRC events bridge registers session_start exactly once (via the enriched handler)', async () => {
-      const input = {
-        targetName: 'test-target',
-        compose: [],
-        roots: [],
-        loadOrder: [],
-        artifacts: [],
-        settingsInputs: [],
-      }
+      const input = composeInput([])
 
       await adapter.composeTarget(input, outputDir, {})
 
@@ -1041,115 +863,62 @@ paths = ["/tmp"]
   })
 
   describe('buildRunArgs', () => {
+    let tmpDir: string
+    let extensionsDir: string
+    let bundle: ComposedTargetBundle
+
+    beforeEach(async () => {
+      tmpDir = await mkdtemp(join(tmpdir(), 'pi-args-'))
+      extensionsDir = join(tmpDir, 'extensions')
+      await mkdir(extensionsDir)
+      bundle = { harnessId: 'pi', targetName: 'test', rootDir: tmpDir, pi: { extensionsDir } }
+    })
+
+    afterEach(async () => {
+      await rm(tmpDir, { recursive: true, force: true })
+    })
+
     test('builds args with extension flags', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
-      await mkdir(extensionsDir, { recursive: true })
       await writeFile(join(extensionsDir, 'tool1.js'), 'export default {}')
       await writeFile(join(extensionsDir, 'tool2.js'), 'export default {}')
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-        },
-      }
 
       const args = adapter.buildRunArgs(bundle, {})
 
       expect(args).toContain('--extension')
       expect(args.filter((a) => a === '--extension')).toHaveLength(2)
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
-    test('builds args with hook bridge extension', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-hook-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
-      await mkdir(extensionsDir, { recursive: true })
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-          hookBridgePath: join(tmpDir, 'asp-hooks.bridge.js'),
-        },
-      }
+    test('builds args with hook bridge extension', () => {
+      bundle.pi!.hookBridgePath = join(tmpDir, 'asp-hooks.bridge.js')
 
       const args = adapter.buildRunArgs(bundle, {})
 
       expect(args).toContain('--extension')
       expect(args).toContain(join(tmpDir, 'asp-hooks.bridge.js'))
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
-    test('adds --no-skills to disable default skill loading', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-skills-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
-      await mkdir(extensionsDir, { recursive: true })
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-          skillsDir: join(tmpDir, 'skills'),
-        },
-      }
+    test('adds --no-skills to disable default skill loading', () => {
+      bundle.pi!.skillsDir = join(tmpDir, 'skills')
 
       const args = adapter.buildRunArgs(bundle, {})
 
       expect(args).toContain('--no-skills')
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
     test('passes replacement system prompt file path with --system-prompt', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-system-prompt-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
       const systemPromptPath = join(tmpDir, 'system-prompt.md')
-      await mkdir(extensionsDir, { recursive: true })
       await writeFile(systemPromptPath, 'system prompt')
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-        },
-      }
 
       const args = adapter.buildRunArgs(bundle, { systemPrompt: systemPromptPath })
 
       expect(argValue(args, '--system-prompt')).toBe(systemPromptPath)
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
     test('passes session reminder file path after replacement system prompt', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-reminder-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
       const systemPromptPath = join(tmpDir, 'system-prompt.md')
       const reminderPath = join(tmpDir, 'session-reminder.md')
-      await mkdir(extensionsDir, { recursive: true })
       await writeFile(systemPromptPath, 'system prompt')
       await writeFile(reminderPath, 'remember this')
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-        },
-      }
 
       const args = adapter.buildRunArgs(bundle, {
         systemPrompt: systemPromptPath,
@@ -1160,70 +929,28 @@ paths = ["/tmp"]
       expect(args.indexOf('--append-system-prompt')).toBeGreaterThan(
         args.indexOf('--system-prompt')
       )
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
     test('passes explicit bundle skills directory while keeping --no-skills', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-explicit-skills-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
       const skillsDir = join(tmpDir, 'skills')
-      await mkdir(extensionsDir, { recursive: true })
       await mkdir(join(skillsDir, 'skill-one'), { recursive: true })
 
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-          skillsDir,
-        },
-      }
+      bundle.pi!.skillsDir = skillsDir
 
       const args = adapter.buildRunArgs(bundle, {})
 
       expect(args).toContain('--no-skills')
       expect(argValue(args, '--skill')).toBe(skillsDir)
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
-    test('always disables native Pi context files', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-context-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
-      await mkdir(extensionsDir, { recursive: true })
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-        },
-      }
-
+    test('always disables native Pi context files', () => {
       const args = adapter.buildRunArgs(bundle, {})
 
       expect(args).toContain('--no-context-files')
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
-    test('uses named Pi session and HRC runtime session dir for continuation keys', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-hrc-session-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
+    test('uses named Pi session and HRC runtime session dir for continuation keys', () => {
       const aspHome = join(tmpDir, 'asp-home')
-      await mkdir(extensionsDir, { recursive: true })
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-        },
-      }
 
       const args = adapter.buildRunArgs(bundle, {
         aspHome,
@@ -1236,94 +963,37 @@ paths = ["/tmp"]
         join(aspHome, 'state/hrc/runtimes/rt-123/pi-sessions')
       )
       expect(args).not.toContain('--resume')
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
-    test('uses bundle-local session dir for continuation keys outside HRC runtime launches', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-standalone-session-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
-      await mkdir(extensionsDir, { recursive: true })
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-        },
-      }
-
+    test('uses bundle-local session dir for continuation keys outside HRC runtime launches', () => {
       const args = adapter.buildRunArgs(bundle, { continuationKey: 'session-b' })
 
       expect(argValue(args, '--session')).toBe('session-b')
       expect(argValue(args, '--session-dir')).toBe(join(tmpDir, 'sessions'))
       expect(args).not.toContain('--resume')
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
-    test('keeps --resume only for explicit continuation picker requests', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-picker-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
-      await mkdir(extensionsDir, { recursive: true })
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-        },
-      }
-
+    test('keeps --resume only for explicit continuation picker requests', () => {
       const args = adapter.buildRunArgs(bundle, { continuationKey: true })
 
       expect(args).toContain('--resume')
       expect(args).not.toContain('--session')
       expect(args).not.toContain('--session-dir')
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
     test('always adds the HRC events bridge extension', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-hrc-bridge-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
       const hrcBridgePath = join(tmpDir, 'asp-hrc-events.bridge.js')
-      await mkdir(extensionsDir, { recursive: true })
       await writeFile(hrcBridgePath, 'export default {}')
 
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-          hrcEventsBridgePath: hrcBridgePath,
-        },
-      } as any
+      bundle.pi!.hrcEventsBridgePath = hrcBridgePath
 
       const args = adapter.buildRunArgs(bundle, {})
 
       expect(args).toContain('--extension')
       expect(args).toContain(hrcBridgePath)
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
-    test('keeps priming prompt as positional argv tail and exposes it in run env', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-priming-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
-      await mkdir(extensionsDir, { recursive: true })
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-        },
-      }
+    test('keeps priming prompt as positional argv tail and exposes it in run env', () => {
       const prompt = 'Prime the interactive session.'
 
       const args = adapter.buildRunArgs(bundle, { prompt })
@@ -1331,137 +1001,55 @@ paths = ["/tmp"]
 
       expect(args.at(-1)).toBe(prompt)
       expect(env['ASP_PRIMING_PROMPT']).toBe(prompt)
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
-    test('translates model names', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-model-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
-      await mkdir(extensionsDir, { recursive: true })
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-        },
+    test('translates model names', () => {
+      const models = [
+        ['sonnet', 'claude-sonnet'],
+        ['opus', 'claude-opus'],
+        ['haiku', 'claude-haiku'],
+      ] as const
+      for (const [model, translated] of models) {
+        const args = adapter.buildRunArgs(bundle, { model })
+        expect(args).toContain('--model')
+        expect(args).toContain(translated)
       }
-
-      // Test sonnet → claude-sonnet translation
-      const argsSonnet = adapter.buildRunArgs(bundle, { model: 'sonnet' })
-      expect(argsSonnet).toContain('--model')
-      expect(argsSonnet).toContain('claude-sonnet')
-
-      // Test opus → claude-opus translation
-      const argsOpus = adapter.buildRunArgs(bundle, { model: 'opus' })
-      expect(argsOpus).toContain('--model')
-      expect(argsOpus).toContain('claude-opus')
-
-      // Test haiku → claude-haiku translation
-      const argsHaiku = adapter.buildRunArgs(bundle, { model: 'haiku' })
-      expect(argsHaiku).toContain('--model')
-      expect(argsHaiku).toContain('claude-haiku')
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
-    test('passes through unknown model names', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-unknown-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
-      await mkdir(extensionsDir, { recursive: true })
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-        },
-      }
-
+    test('passes through unknown model names', () => {
       const args = adapter.buildRunArgs(bundle, { model: 'gpt-4' })
       expect(args).toContain('--model')
       expect(args).toContain('gpt-4')
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
-    test('includes extra args', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-extra-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
-      await mkdir(extensionsDir, { recursive: true })
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-        },
-      }
-
+    test('includes extra args', () => {
       const args = adapter.buildRunArgs(bundle, { extraArgs: ['--verbose', '--debug'] })
 
       expect(args).toContain('--verbose')
       expect(args).toContain('--debug')
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
-    test('does not include project path (Pi uses cwd)', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-path-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
-      await mkdir(extensionsDir, { recursive: true })
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-        },
-      }
-
+    test('does not include project path (Pi uses cwd)', () => {
       const args = adapter.buildRunArgs(bundle, { projectPath: '/my/project' })
 
       // Pi uses cwd, not a positional path argument
       expect(args).not.toContain('/my/project')
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
 
     test('throws when no pi bundle', () => {
-      const bundle = {
+      const missingPiBundle = {
         harnessId: 'pi' as const,
         targetName: 'test',
         rootDir: '/test',
       }
 
-      expect(() => adapter.buildRunArgs(bundle, {})).toThrow('Pi bundle is missing')
+      expect(() => adapter.buildRunArgs(missingPiBundle, {})).toThrow('Pi bundle is missing')
     })
 
-    test('adds --no-extensions when no extensions found', async () => {
-      const tmpDir = join(tmpdir(), `pi-args-no-ext-${Date.now()}`)
-      const extensionsDir = join(tmpDir, 'extensions')
-      await mkdir(extensionsDir, { recursive: true })
-      // Empty extensions directory - no .js files
-
-      const bundle = {
-        harnessId: 'pi' as const,
-        targetName: 'test',
-        rootDir: tmpDir,
-        pi: {
-          extensionsDir,
-        },
-      }
-
+    test('adds --no-extensions when no extensions found', () => {
       const args = adapter.buildRunArgs(bundle, {})
 
       expect(args).toContain('--no-extensions')
-
-      await rm(tmpDir, { recursive: true, force: true })
     })
   })
 
@@ -1520,17 +1108,15 @@ describe('Pi detection utilities', () => {
       expect(path).toBe(mockPiPath)
     })
 
-    test('throws PiNotFoundError when PI_PATH is invalid', async () => {
-      process.env['PI_PATH'] = '/nonexistent/path/to/pi'
+    test.each([
+      ['throws PiNotFoundError when PI_PATH is invalid', '/nonexistent/path/to/pi'],
+      [
+        'throws PiNotFoundError when PI_PATH points to non-existent file',
+        '/definitely/nonexistent/path/that/does/not/exist/pi',
+      ],
+    ])('%s', async (_name, path) => {
+      process.env['PI_PATH'] = path
 
-      await expect(findPiBinary()).rejects.toThrow(PiNotFoundError)
-    })
-
-    test('throws PiNotFoundError when PI_PATH points to non-existent file', async () => {
-      // Set PI_PATH to a definitely non-existent path
-      process.env['PI_PATH'] = '/definitely/nonexistent/path/that/does/not/exist/pi'
-
-      // This should throw because the specified PI_PATH doesn't exist
       await expect(findPiBinary()).rejects.toThrow(PiNotFoundError)
     })
 
@@ -1947,10 +1533,7 @@ describe('loadTargetBundle', () => {
     // No skills dir / bridges on disk -> undefined.
     expect(bundle.pi?.skillsDir).toBeUndefined()
     expect(bundle.pi?.hookBridgePath).toBeUndefined()
-    const piWithHrc = bundle.pi as
-      | (NonNullable<typeof bundle.pi> & { hrcEventsBridgePath?: string | undefined })
-      | undefined
-    expect(piWithHrc?.hrcEventsBridgePath).toBeUndefined()
+    expect(bundle.pi?.hrcEventsBridgePath).toBeUndefined()
   })
 
   test('detects skills dir and both bridges when present on disk', async () => {
@@ -1967,10 +1550,7 @@ describe('loadTargetBundle', () => {
 
     expect(bundle.pi?.skillsDir).toBe(join(outputDir, 'skills'))
     expect(bundle.pi?.hookBridgePath).toBe(join(outputDir, 'asp-hooks.bridge.js'))
-    const piWithHrc = bundle.pi as NonNullable<typeof bundle.pi> & {
-      hrcEventsBridgePath?: string | undefined
-    }
-    expect(piWithHrc.hrcEventsBridgePath).toBe(join(outputDir, 'asp-hrc-events.bridge.js'))
+    expect(bundle.pi!.hrcEventsBridgePath).toBe(join(outputDir, 'asp-hrc-events.bridge.js'))
   })
 
   test('treats an empty skills directory as no skills dir', async () => {
@@ -2059,21 +1639,7 @@ describe('detect capability inference', () => {
     const adapter = new PiAdapter()
     // --help succeeds but never mentions --extension or --skills, so the
     // capability probes should resolve to false.
-    await writeFile(
-      mockPiPath,
-      `#!/bin/bash
-if [[ "$1" == "--version" ]]; then
-  echo "1.0.0"
-  exit 0
-fi
-if [[ "$1" == "--help" ]]; then
-  echo "usage: pi [--model MODEL]"
-  exit 0
-fi
-exit 0
-`
-    )
-    await chmod(mockPiPath, 0o755)
+    await writeMockPi(mockPiPath, '1.0.0', ['usage: pi [--model MODEL]'])
     process.env['PI_PATH'] = mockPiPath
 
     const result = await adapter.detect()
@@ -2090,23 +1656,11 @@ exit 0
     // The real pi CLI advertises `--skill <path>` and `--no-skills`, and never
     // the string `--skills`. The probe must look for `--skill`; probing the old
     // `--skills` would (incorrectly) miss this help text and report no skills.
-    await writeFile(
-      mockPiPath,
-      `#!/bin/bash
-if [[ "$1" == "--version" ]]; then
-  echo "1.0.0"
-  exit 0
-fi
-if [[ "$1" == "--help" ]]; then
-  echo "  --extension, -e <path>    Load an extension file"
-  echo "  --skill <path>            Load a skill file or directory"
-  echo "  --no-skills, -ns          Disable skills discovery and loading"
-  exit 0
-fi
-exit 0
-`
-    )
-    await chmod(mockPiPath, 0o755)
+    await writeMockPi(mockPiPath, '1.0.0', [
+      '  --extension, -e <path>    Load an extension file',
+      '  --skill <path>            Load a skill file or directory',
+      '  --no-skills, -ns          Disable skills discovery and loading',
+    ])
     process.env['PI_PATH'] = mockPiPath
 
     const result = await adapter.detect()
