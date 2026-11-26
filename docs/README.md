@@ -1,9 +1,7 @@
 # Documentation index
 
-Start with the current references and operating guides below. Proposals record
-design decisions and their stated implementation scope; historical pages preserve
-evidence rather than define current acceptance. [Architecture records](../architecture/README.md)
-own the normative contracts.
+Start with the current references and operating guides below.
+[Architecture records](../architecture/README.md) own the normative contracts.
 
 ## Current references
 
@@ -11,10 +9,7 @@ own the normative contracts.
 - [Spaces composition model](spaces-composition-model.md) — Space manifests, target composition, and deterministic resolution.
 - [Materialization and install flow](materialization-install-flow.md) — How declared composition becomes a runnable harness home.
 - [Harness architecture](harness-architecture.md) — Public harness selection and the compiler boundary.
-- [CLI surface](cli-surface.md) — Command groups and their responsibilities.
-- [CLI reference](cli-reference.md) — Command syntax and option reference.
 - [Identity, scope, and environment contract](identity-scope-and-env-contract.md) — Cross-repository identity vocabulary and launched-process environment.
-- [Environment contract](env-contract.md) — Environment layers and variable ownership.
 
 ## Operating and validation guides
 
@@ -27,34 +22,8 @@ own the normative contracts.
 - [Agent resource parity verifier implementation](../integration-tests/bin/verify-agent-resource-parity.ts) — Compare direct-loader and compatibility-compiler prompts and skills with `just verify-agent-resource-parity`.
 - [Native agent-harness release worker e2e](runbooks/e2e-harness-agent-harness.md) — Verify release-worker identity and headless/interactive lifecycle through the standard broker protocol.
 - [Closeout evidence](closeout-evidence.md) — Choose evidence appropriate to the changed or claimed surface.
-- [Agent enablement changelog](agent-enablement-changelog.md) — Record control-loop changes and follow the retro cadence.
 - [Hook timings](hook-timings.md) — Measure and interpret repository hook latency.
 
-## Designs and proposals
+## Supporting material
 
-Read each page's status and implementation-scope notes before treating a proposed
-command or lifecycle as available. Current harness behavior is described in the
-[harness architecture](harness-architecture.md) and active architecture records.
-
-- [Agent-authored runtime resources](proposals/agent-authored-runtime-resources.md) — Desired-state resource plans; distinguishes ASP compilation from ACP lifecycle intent.
-- [Agent scaffolding](proposals/agent-scaffolding.md) — Approved, unimplemented agent-creation command design.
-
-## Historical and supporting material
-
-- Praesidium agent harness — Accepted August direct Pi resource-loader design preserved byte-for-byte as `ATT-00444` on T-07542 (rewrite the agent-harness resource-loader and TUI spec). Retrieve with `prae task attachment get ATT-00444`. The [active runtime-boundary invariant](../architecture/records/invariants/agent-spaces.agent-harness-runtime-boundary.yaml) covers the native release-worker amendment and current runtime contract.
-- aspd Rust front door — Completed P-00890 campaign plan (R0-R4: Bun race fixes, compare runner, raspd front door, native reads and compile, per-node go-live), preserved byte-for-byte as attachment `ATT-00431` on completed task T-11832 (aspd Rust front-door plan: Daedalus review). Retrieve with `wrkq attach get ATT-00431`; its forward-to-Bun and Bun-owns-semantics claims are superseded by T-13018 sole mode. Use [aspd](aspd.md) and the [active front-door invariant](../architecture/records/invariants/agent-spaces.aspd-rust-front-door.yaml).
-- Harness scenario helpers — Archived optional package design, preserved byte-for-byte as attachment `ATT-00422` on completed task T-12632 (Archived optional harness scenario helper design). Retrieve with `wrkq attach get ATT-00422`; only the standalone protocol hardening prerequisite shipped, under T-06393.
-- Producer-owned harness selection — Completed ASP v2 cutover design, preserved byte-for-byte as attachment `ATT-00425` on completed task T-08699 (Define the public v2 harness-selection contract). Retrieve with `wrkq attach get ATT-00425`; use the [compiler catalog](../compiler/agent-spaces/src/harness-selection/catalog.ts) and [public selection types](../contracts/spaces-runtime-contracts/src/harness-selection.ts) for current vocabulary and defaults.
-- Native release worker — Completed owner-approved worker design, preserved byte-for-byte as attachment `ATT-00423` on completed task T-08680 (Native agent-harness release worker). Retrieve with `wrkq attach get ATT-00423`; use the [active runtime-boundary invariant](../architecture/records/invariants/agent-spaces.agent-harness-runtime-boundary.yaml) and [native worker e2e runbook](runbooks/e2e-harness-agent-harness.md) for current guidance.
-- HRC-operated agent-harness interactive TUI — Superseded interactive rationale, preserved byte-for-byte as attachment `ATT-00424` on completed task T-08680 (Native agent-harness release worker). Retrieve with `wrkq attach get ATT-00424`; its private wire contract is retired. Use the [active runtime-boundary invariant](../architecture/records/invariants/agent-spaces.agent-harness-runtime-boundary.yaml).
-- Harness broker proposal — Historical May 2026 design series. T-14332 (archive the May 2026 harness broker proposal) holds the full `harness-broker-proposal.tar` and README attachment `ATT-00441`. See [harness architecture](harness-architecture.md) for current behavior.
-- Dead-code analysis campaign — September campaign runbook and results preserved as `ATT-00440` on T-08752 (reconcile the dead-code analysis campaign).
-- Agent resource parity verifier design — August implementation plan and evidence preserved as `ATT-00443` on T-07548 (migrate resource parity to the production direct loader).
-- Codex Desktop design — September proposal and subsequent ownership ruling preserved as `ATT-00442` on T-08594 (self-joining Codex Desktop broker). See [Codex Desktop self-join](codex-desktop-join.md) for operation.
-- Claude Agent SDK smoke runbook — Historical pre-v2 evidence for the retired SDK selection path, preserved byte-for-byte as attachment `ATT-00419` on completed task T-12629 (Archived pre-v2 harness smoke runbooks). Retrieve with `wrkq attach get ATT-00419`; use the [harness architecture](harness-architecture.md) and [broker matrix guidance](../harness/harness-broker/AGENTS.md) for current acceptance.
-- Codex smoke runbook — Historical pre-v2 evidence for the earlier Codex integration, preserved byte-for-byte as attachment `ATT-00420` on completed task T-12629 (Archived pre-v2 harness smoke runbooks). Retrieve with `wrkq attach get ATT-00420`; use the [harness architecture](harness-architecture.md) and [broker matrix guidance](../harness/harness-broker/AGENTS.md) for current acceptance.
-- Pi SDK smoke runbook — Historical pre-v2 evidence for the retired Pi SDK selection path, preserved byte-for-byte as attachment `ATT-00421` on completed task T-12629 (Archived pre-v2 harness smoke runbooks). Retrieve with `wrkq attach get ATT-00421`; use the [harness architecture](harness-architecture.md) and [broker matrix guidance](../harness/harness-broker/AGENTS.md) for current acceptance.
-- P0 hash epoch — August 2026 migration baseline preserved as `ATT-00439` on T-07309 (P0 hash epoch bump and regeneration). See the [epoch regression checks](../scripts/p0-hash-epoch.test.ts).
-- Real Codex app-server May 2026 smoke — preserved byte-for-byte as attachment `ATT-00336` on completed task T-01554 (tool-call payload projection). Retrieve with `wrkq attach get ATT-00336`; use the [broker matrix guidance](../harness/harness-broker/AGENTS.md) for current acceptance.
-- [HTML proposal assets](html/assets/README.md) — Reusable styling and contract-viewer assets for standalone proposal pages.
-- [Architecture overview](ARCHITECTURE.md) — Internal package boundaries, runtime contracts, and execution paths.
+- [HTML proposal assets](html/assets/README.md) — Reusable styling and contract-viewer assets for standalone pages.

@@ -205,6 +205,12 @@ different concepts: use `AGENT_SCOPE_REF` for durable identity/ownership
 logic, `AGENT_SESSION_REF` only when lane-aware session routing or
 correlation matters.
 
+## Environment ownership across services
+
+Consumers use the producer-owned variable name. Each service owns the names
+used only inside that service. wrkq's `WRKQD_URL` is a client endpoint and
+`WRKQD_ADDR` is a bind address, so the two can differ.
+
 ## ASP-owned config vars
 
 | Variable | Format | Legacy fallback |

@@ -116,6 +116,13 @@ Agent-local components can enter the bundle as a synthetic plugin keyed by
 `basename(agentRoot)`. When the agent runtime materializer discovers skills
 across the composed plugins, `discoverSkills()` rejects duplicate skill names.
 
+## Agent-local tools
+
+Agent tools run from the agent's source `tools/bin` directory, prepended
+to the launch `PATH`. This keeps one agent-owned copy across harnesses and
+avoids creating a separate tool bundle lifecycle. Agent and project state
+directories are exposed independently of whether the agent supplies tools.
+
 ## Codex overlay (persona sync, not the install pipeline)
 
 `just overlay-codex` (`scripts/sync-agent-to-codex-default.ts --install-hooks --apply`) overlays

@@ -23,6 +23,6 @@ Proven when. The last line of each file names the drive that last proved it and 
   When a Gotcha stops being true, delete it, or say which commit ended it.
 - Re-drive a feature after any change to its code. Put the evidence under your task's `artifact_dir` in
   SKILL.md's "Evidence" layout (`NN-<feature>/drive.txt`), and update the file's last line.
-- The docs (`docs/cli-reference.md`, `docs/aspd.md`, `docs/materialization-install-flow.md`) and the
+- The docs (`docs/spaces-composition-model.md`, `docs/aspd.md`, `docs/materialization-install-flow.md`) and the
   architecture records say what was specified. These files say what the installed surface does and how to
   watch it do it.

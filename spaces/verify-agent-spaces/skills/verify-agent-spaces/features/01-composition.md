@@ -5,7 +5,7 @@ A project declares targets in `asp-targets.toml` (schema 2). Each target compose
 `~/praesidium/var/agents/spaces/<id>`), and `compose_mode = "merge"` to append to an agent profile's own spaces.
 The read verbs resolve that against the lock and report it. Code: `apps/cli/src/commands/{lint,explain,describe,
 list,path,diff}.ts`, `apps/cli/src/commands/{repo,spaces}/`, resolution in `core/config` (`spaces-config`). Docs:
-`docs/spaces-composition-model.md`, `docs/cli-reference.md`.
+`docs/spaces-composition-model.md`. Use `asp --help` for CLI syntax.
 
 ## Sub-features
 

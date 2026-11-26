@@ -146,6 +146,9 @@ unix websocket inside tmux. Codex hooks call back into HRC through `HRC_LAUNCH_H
 - **Agent sources (`var/agents/`)** are read-only inputs: agent homes and shared spaces.
   agent-spaces never writes to them. Generated homes and bundles are outputs, never edited by
   hand.
+- **Managed execution evidence** uses the broker's durable invocation event
+  sequence. Harness JSONL artifacts are optional telemetry. They carry no
+  stable replay contract.
 - **agent-control-plane** pins agent-spaces and HRC versions as operator-managed producer
   tuples and advances them only in a governed deployment window. agent-spaces installs do not
   move it.

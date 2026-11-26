@@ -112,7 +112,7 @@ asp run default # Launch Claude with composed spaces
 | `asp resources plan` | Compile an agent-authored runtime resources plan |
 | `asp token-rent` | Price resident system-prompt sections against real run frequency |
 
-See [docs/cli-reference.md](./docs/cli-reference.md) for the full CLI surface.
+Run `asp --help` or `asp <command> --help` for the current CLI syntax.
 
 ## Run Modes
 
@@ -132,11 +132,10 @@ asp agent alice@demo:T-1 task --prompt "triage the failing build"
 
 ## Documentation
 
-- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — Package boundaries, runtime contracts, and current seams
-- [docs/cli-reference.md](./docs/cli-reference.md) — `asp` command reference
-- [docs/env-contract.md](./docs/env-contract.md) — Environment variable contract
+- [Architecture brief](./docs/architecture-brief.md) — Repository ownership and launch boundaries
+- [Identity, scope, and environment contract](./docs/identity-scope-and-env-contract.md) — Launch environment writers and identity
 - [docs/hook-timings.md](./docs/hook-timings.md) — Local pre-commit/pre-push timing telemetry and reporting
-- [Designs and proposals](./docs/README.md#designs-and-proposals) — Active design references and their implementation status
+- [Documentation catalog](./docs/README.md) — Contracts and operating guides
 - [spaces/agent-spaces-manager/commands/space-authoring.md](./spaces/agent-spaces-manager/commands/space-authoring.md) — Space authoring guide (generated from `<agents-root>/spaces/agent-spaces-manager` by `just sync-manager-space`)
 
 ## Package Layout

@@ -42,7 +42,6 @@ Use the [documentation index](docs/README.md) for references and runbooks; run t
 - Lint: `bun run lint` (fix with `bun run lint:fix`)
 - Boundary checks: `bun run check:boundaries`, `bun run check:manifests`
 - Closeout evidence tiers: see [docs/closeout-evidence.md](docs/closeout-evidence.md)
-- Agent enablement changelog / retro step: see [docs/agent-enablement-changelog.md#retro-cadence](docs/agent-enablement-changelog.md#retro-cadence)
 - Pack smoke: `bun scripts/smoke-pack-cross-repo.ts` (verifies cross-repo published tarballs don't carry `exports.bun → ./src/*.ts`)
 - Run the [harness broker matrix](docs/closeout-evidence.md#harness-broker-matrix)
   from a clean Ghostty terminal for harness-broker changes.
