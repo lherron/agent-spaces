@@ -55,17 +55,6 @@ const scopeLibrary = join(repoRoot, 'scripts', 'lib', 'hook-change-scope.ts')
 const optimizationLibrary = join(repoRoot, 'scripts', 'lib', 'hook-optimization.ts')
 const timingLibrary = join(repoRoot, 'scripts', 'lib', 'hook-timing.ts')
 const workspaceGraphLibrary = join(repoRoot, 'scripts', 'lib', 'workspace-graph.ts')
-const codeOnlyPreCommitCommands = [
-  'lint',
-  'boundaries',
-  'harness-boundaries',
-  'manifests',
-  'dependency-pins',
-  'suppressions',
-  'public-surface',
-  'rule-authoring',
-  'build',
-]
 const temporaryRoots: string[] = []
 
 afterEach(async () => {
@@ -214,21 +203,17 @@ describe('lefthook v2 configuration', () => {
     run([lefthookBinary, 'validate'], repoRoot)
   })
 
-  test('keeps secret and documentation checks unconditional', async () => {
+  test('keeps pre-commit to staged secrets, formatting and lint', async () => {
     const commands = (await readConfig())['pre-commit'].commands
 
-    expect(commands['gitleaks']?.run).toBe(
-      'bun scripts/run-hook-command.ts pre-commit {lefthook_job_name} -- gitleaks protect --staged --redact'
-    )
-    expect(commands['doc-reachability']?.run).toBe(
-      'bun scripts/run-hook-command.ts pre-commit {lefthook_job_name} -- bun scripts/check-doc-reachability.ts'
-    )
-    for (const name of codeOnlyPreCommitCommands) {
-      const prefix = `bun scripts/run-if-code-changed.ts pre-commit {lefthook_job_name}${
-        name === 'public-surface' ? ' --only=public-surface' : ''
-      } -- `
-      expect(commands[name]?.run, name).toStartWith(prefix)
-    }
+    expect(commands).toEqual({
+      gitleaks: {
+        run: 'bun scripts/run-hook-command.ts pre-commit {lefthook_job_name} -- gitleaks protect --staged --redact',
+      },
+      lint: {
+        run: 'bun scripts/run-hook-command.ts pre-commit {lefthook_job_name} -- bun run biome check --staged --no-errors-on-unmatched',
+      },
+    })
   })
 
   test('pre-push only reports the push', async () => {
