@@ -22,6 +22,9 @@ interface HookConfig {
     files: string
     commands: Record<string, HookCommandConfig>
   }
+  'post-commit': {
+    commands: Record<string, HookCommandConfig>
+  }
 }
 
 interface HookFixture {
@@ -236,10 +239,10 @@ describe('lefthook v2 configuration', () => {
     expect(Object.keys(prePush.commands)).toEqual(['git-push-fact'])
     expect(prePush.commands['git-push-fact']).toEqual({
       use_stdin: true,
-      run: `sh -c 'command -v wrkp >/dev/null 2>&1 && wrkp git push "$@" || true' sh {0}`,
+      run: `sh -c 'wrkp="$HOME/.local/bin/wrkp"; [ -x "$wrkp" ] && "$wrkp" git push "$@" || true' sh {0}`,
     })
     expect(config['post-commit'].commands['wrkp-git-commit'].run).toBe(
-      'command -v wrkp >/dev/null 2>&1 && wrkp git commit || true'
+      'wrkp="$HOME/.local/bin/wrkp"; [ -x "$wrkp" ] && "$wrkp" git commit || true'
     )
   })
 })

@@ -42,9 +42,9 @@ pre-push:
     # One stdin consumer: Lefthook cannot fan pre-push stdin out to commands.
     git-push-fact:
       use_stdin: true
-      run: sh -c 'command -v wrkp >/dev/null 2>&1 && wrkp git push "$@" || true' sh {0}
+      run: sh -c 'wrkp="$HOME/.local/bin/wrkp"; [ -x "$wrkp" ] && "$wrkp" git push "$@" || true' sh {0}
 
 post-commit:
   commands:
     wrkp-git-commit:
-      run: command -v wrkp >/dev/null 2>&1 && wrkp git commit || true
+      run: wrkp="$HOME/.local/bin/wrkp"; [ -x "$wrkp" ] && "$wrkp" git commit || true

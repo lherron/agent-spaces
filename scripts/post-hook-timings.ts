@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import {
+  WRKP_INSTALL_PATH,
   hookSettledPostArgs,
   readTimingRecords,
   resolveHookTimingsPath,
@@ -23,7 +24,7 @@ let existing = 0
 let failed = 0
 for (const record of records) {
   if (record.recordType !== 'hook') continue
-  const result = spawnSync('wrkp', hookSettledPostArgs(record), {
+  const result = spawnSync(WRKP_INSTALL_PATH, hookSettledPostArgs(record), {
     encoding: 'utf8',
     timeout: 15_000,
   })

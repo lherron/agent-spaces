@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { appendFile, mkdir, readFile } from 'node:fs/promises'
-import { cpus, hostname, loadavg } from 'node:os'
+import { cpus, homedir, hostname, loadavg } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 
 import type { ChangeClassification, ClassifiedChangeScope, HookName } from './hook-change-scope.ts'
@@ -10,6 +10,7 @@ export const HOOK_RUN_ID_ENV = 'AGENT_SPACES_HOOK_RUN_ID'
 export const HOOK_TIMINGS_PATH_ENV = 'AGENT_SPACES_HOOK_TIMINGS_PATH'
 export const HOOK_CHANGE_KIND_ENV = 'AGENT_SPACES_HOOK_CHANGE_KIND'
 export const HOOK_CHANGE_FILE_COUNT_ENV = 'AGENT_SPACES_HOOK_CHANGE_FILE_COUNT'
+export const WRKP_INSTALL_PATH = join(homedir(), '.local', 'bin', 'wrkp')
 
 const changeClassifications = new Set<ChangeClassification>([
   'code',
@@ -91,7 +92,7 @@ export function hookSettledPostArgs(record: HookTimingRecord): string[] {
 
 function postHookSettled(record: HookTimingRecord): void {
   try {
-    const child = spawn('wrkp', hookSettledPostArgs(record), {
+    const child = spawn(WRKP_INSTALL_PATH, hookSettledPostArgs(record), {
       detached: true,
       stdio: 'ignore',
     })

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 import { HOOK_TIMINGS_PATH_ENV, readTimingRecords } from './lib/hook-timing.ts'
 import type { HookStepTimingRecord, HookTimingRecord, TimingRecord } from './lib/hook-timing.ts'
@@ -43,7 +43,7 @@ async function makeFixture(): Promise<{
   const root = await mkdtemp(join(tmpdir(), 'agent-spaces-hook-timing-'))
   temporaryRoots.push(root)
   const work = join(root, 'work')
-  const binDir = join(root, 'bin')
+  const binDir = join(root, '.local', 'bin')
   const logPath = join(root, 'hook-timings.jsonl')
   await mkdir(work, { recursive: true })
   await mkdir(binDir, { recursive: true })
@@ -63,6 +63,7 @@ async function makeFixture(): Promise<{
 function hookEnv(fixture: { binDir: string; logPath: string }): Record<string, string> {
   return {
     [HOOK_TIMINGS_PATH_ENV]: fixture.logPath,
+    HOME: dirname(dirname(fixture.binDir)),
     PATH: `${fixture.binDir}:${process.env['PATH'] ?? ''}`,
   }
 }
