@@ -362,6 +362,7 @@ export class CodexAdapter implements HarnessAdapter {
     { id: 'gpt-6.2-sol', name: 'GPT-6.2-Sol', identityKind: 'full' },
     { id: 'gpt-6.2-astra', name: 'GPT-6.2-Astra', identityKind: 'full' },
     { id: 'gpt-6.1-sol', name: 'GPT-6.1-Sol', identityKind: 'full' },
+    { id: 'gpt-6.1-terra', name: 'GPT-6.1-Terra', identityKind: 'full' },
     { id: 'gpt-6-astra', name: 'GPT-6-Astra', identityKind: 'full' },
     { id: 'gpt-6-luna', name: 'GPT-6-Luna', identityKind: 'full' },
     { id: 'gpt-5.6-sol', name: 'GPT-5.6-Sol', identityKind: 'full' },
