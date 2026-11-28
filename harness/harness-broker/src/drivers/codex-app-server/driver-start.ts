@@ -47,6 +47,14 @@ import { buildRendererLaunchCommand } from './renderer'
 import { CodexRpcClient } from './rpc-client'
 import { startTmpKeepalive } from './tmp-keepalive'
 
+/** The startup step whose RPC the startup timer is waiting on. */
+type CodexStartupStage =
+  | 'initialize'
+  | 'initialized'
+  | 'hook-trust'
+  | 'thread-start'
+  | 'thread-resume'
+
 /** `start()`: transport + presentation bring-up, handshake and thread acquisition. */
 export function createCodexDriverStart(
   s: CodexDriverState,
@@ -69,6 +77,7 @@ export function createCodexDriverStart(
     handleAppServerStderr,
     handleRendererExited,
     startThread,
+    resumeTargetThreadId,
     ensureCodexHookTrust,
     startCodexTuiHookListener,
   } = control
@@ -399,27 +408,36 @@ export function createCodexDriverStart(
     }
 
     // Wire startup timeout — timer starts when the first RPC is written,
-    // so process boot time doesn't count against the limit.
+    // so process boot time doesn't count against the limit. Each stage gets
+    // its own budget: the timer detects a wedged app-server, not a slow host.
     const startupTimeoutMs = startSpec.process.limits?.startupTimeoutMs
     let startupTimedOut = false
     let startupTimer: ReturnType<typeof setTimeout> | undefined
+    let startupTimeoutMessage = 'Startup timed out'
     let startedThreadId = ''
 
-    function armStartupTimer(): void {
+    function armStartupTimer(stage: CodexStartupStage): void {
       if (startupTimer !== undefined) clearTimeout(startupTimer)
       if (startupTimeoutMs === undefined || startupTimeoutMs <= 0) return
+      const stageStartedAt = Date.now()
       startupTimer = setTimeout(() => {
         if (!s.starting) return
         startupTimedOut = true
-        emitTerminalFailure('Startup timed out', 'Timeout')
-        s.rpc?.close(new Error('Startup timed out'))
+        const elapsedMs = Date.now() - stageStartedAt
+        startupTimeoutMessage = `Startup timed out in ${stage} after ${elapsedMs} ms`
+        emitTerminalFailure(startupTimeoutMessage, 'Timeout', {
+          stage,
+          elapsedMs,
+          timeoutMs: startupTimeoutMs,
+        })
+        s.rpc?.close(new Error(startupTimeoutMessage))
         if (s.proc && s.proc.exitCode === null) s.proc.kill('SIGTERM')
-        s.rejectStartup?.(new BrokerError(BrokerErrorCode.Timeout, 'Startup timed out'))
+        s.rejectStartup?.(new BrokerError(BrokerErrorCode.Timeout, startupTimeoutMessage))
       }, startupTimeoutMs)
     }
 
     try {
-      armStartupTimer()
+      armStartupTimer('initialize')
       const initializeResult = await withStartupRace(
         rpcClient.sendRequest('initialize', {
           clientInfo: { name: 'harness-broker', version: '0.1.0' },
@@ -427,16 +445,16 @@ export function createCodexDriverStart(
         })
       )
       validateInitializeHandshake(initializeResult, emitDiagnostic)
-      armStartupTimer() // re-arm after successful initialize
+      armStartupTimer(s.codexTui ? 'hook-trust' : 'initialized')
       await withStartupRace(rpcClient.sendNotification('initialized', {}))
       if (s.codexTui) await withStartupRace(ensureCodexHookTrust())
-      armStartupTimer() // re-arm after initialized notification
+      armStartupTimer(resumeTargetThreadId() !== undefined ? 'thread-resume' : 'thread-start')
       startedThreadId = await withStartupRace(startThread())
       s.threadId = startedThreadId
     } catch (startupErr) {
       if (startupTimer !== undefined) clearTimeout(startupTimer)
       if (startupTimedOut) {
-        throw new BrokerError(BrokerErrorCode.Timeout, 'Startup timed out')
+        throw new BrokerError(BrokerErrorCode.Timeout, startupTimeoutMessage)
       }
       throw startupErr
     }

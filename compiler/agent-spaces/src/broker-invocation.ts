@@ -58,8 +58,8 @@ interface HandleParts {
  * override them. Named per-field so the intent of each magic number is explicit
  * and so any tuning happens against a single documented source of truth.
  */
-/** Max time to wait for the harness process to come up before failing the start. */
-const DEFAULT_BROKER_STARTUP_TIMEOUT_MS = 20_000
+/** Per-stage budget for one startup RPC before failing the start: detects a wedged harness, not a slow host. */
+const DEFAULT_BROKER_STARTUP_TIMEOUT_MS = 60_000
 /** Max wall-clock time a single turn may run before the broker aborts it (15 min). */
 const DEFAULT_BROKER_TURN_TIMEOUT_MS = 900_000
 /** Grace period granted for a clean shutdown before the broker hard-stops it. */

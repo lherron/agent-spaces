@@ -157,15 +157,20 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
     }
   }
 
+  /** The thread startThread resumes, or undefined when it starts a fresh one. */
+  function resumeTargetThreadId(): string | undefined {
+    return (
+      s.driverSpec?.resumeThreadId ??
+      (s.spec?.continuation?.provider === 'codex' ? s.spec.continuation.key : undefined)
+    )
+  }
+
   async function startThread(): Promise<string> {
     if (!s.rpc || !s.spec || !s.driverSpec) {
       throw new BrokerError(BrokerErrorCode.InvalidInvocationState, 'Driver is not initialized')
     }
 
-    const resumeThreadId =
-      s.driverSpec.resumeThreadId ??
-      (s.spec.continuation?.provider === 'codex' ? s.spec.continuation.key : undefined)
-
+    const resumeThreadId = resumeTargetThreadId()
     const startParams = buildThreadStartParams(s.spec, s.driverSpec)
     if (!resumeThreadId) {
       return acceptThread(await s.rpc.sendRequest<ThreadResponse>('thread/start', startParams))
@@ -461,6 +466,7 @@ export function createCodexDriverControl(s: CodexDriverState, events: CodexDrive
     acceptThread,
     observeModelReroute,
     startThread,
+    resumeTargetThreadId,
     scrubQueuedInputs,
     ensureCodexHookTrust,
     applyQueuedInput,

@@ -143,7 +143,7 @@ pub(super) fn locked_env(plan: &Plan, adapter_env: EnvPairs, tool_env: EnvPairs)
 /// The broker's default process limits (broker-invocation.ts).
 pub(super) fn default_limits() -> J {
     J::obj([
-        ("startupTimeoutMs", J::Num(20_000.0)),
+        ("startupTimeoutMs", J::Num(60_000.0)),
         ("turnTimeoutMs", J::Num(900_000.0)),
         ("stopGraceMs", J::Num(5_000.0)),
     ])
