@@ -113,9 +113,9 @@
           ]
         },
         "release": {
-          "releaseId": "asp-574b83013cf8-20261122T202611Z-053e86",
-          "sourceCommit": "574b83013cf8ab7006f7e5afdd131c38d27d0873",
-          "builtAt": "2026-11-22T20:26:11.826Z"
+          "releaseId": "asp-cec2af932c28-20261128T075652Z-cb9685",
+          "sourceCommit": "cec2af932c28d96a5b1a64f4d2c995842e94b1f9",
+          "builtAt": "2026-11-28T07:56:52.925Z"
         }
       }
     },
@@ -131,8 +131,8 @@
             "name": "agent-spaces",
             "version": "0.1.1"
           },
-          "compileId": "compile_a6ba506dcb084d8b268175d621f08629",
-          "createdAt": "2026-11-22T20:26:34.015Z",
+          "compileId": "compile_553a2c0ce568ca6f955339b08e7df1f4",
+          "createdAt": "2026-11-28T07:57:43.265Z",
           "agent": {
             "id": "pathmark-dev"
           },
@@ -224,10 +224,10 @@
             },
             "presentationFulfillment": "attachable",
             "profile": {
-              "profileId": "profile_7652b13c60cdc96663833c5ffa6382ff",
-              "profileHash": "e244fa5b0468b7693ec1e2c05b834730a54b0dfeb15f591e68afad05a415fa2e",
-              "compatibilityHash": "6d9ee9ae65afc652680834d2aa5b4c89ca67c0b62b0fb3cb1d2dc4cbab6968a4",
-              "startRequestHash": "2bd543a720d4fb88ee4f886c671dc4773e17dc01a29456da457ce34aeadceed0"
+              "profileId": "profile_f3ce5aa4b1926957eedd0ff96db49945",
+              "profileHash": "73aa5878ff89af5f065833948827737f086dd99375545ddf121a6079bbf594f4",
+              "compatibilityHash": "7f9e9b180560d14856eeccc0847da3eaf6f43be13cd57e012d0018622ba9ac56",
+              "startRequestHash": "cb3f69092b1550fbeea46656c837c6925002abf0f3e832432c52dda77d6eeceb"
             },
             "dispatchRequest": {
               "startRequest": {
@@ -273,7 +273,7 @@
                       "kind": "jsonrpc-stdio"
                     },
                     "limits": {
-                      "startupTimeoutMs": 20000,
+                      "startupTimeoutMs": 60000,
                       "turnTimeoutMs": 900000,
                       "stopGraceMs": 5000
                     }
@@ -355,19 +355,19 @@
             ]
           },
           "diagnostics": [],
-          "planHash": "1385d62b258509dd15ece01f03cc1cbb39a91aebdfea2674b34f6dc93603b18c"
+          "planHash": "705f5164d59c325a4ef8544b7c4ff91e1e644a1c38061f144e87c4004c821643"
         },
         "sessionMetadata": {},
         "diagnostics": [],
-        "effectiveEnvironmentHash": "a1d03ed5f3893504b44ee7a3b689ff72eed3f933f1b617e0734bd68047ba7ad3",
+        "effectiveEnvironmentHash": "8d00e7d7689ef118eb5275a6e786a27b6fe31faef4758af0c3d276e7b1cc5add",
         "executionRelease": {
-          "releaseId": "asp-574b83013cf8-20261122T202611Z-053e86",
-          "sourceCommit": "574b83013cf8ab7006f7e5afdd131c38d27d0873",
-          "builtAt": "2026-11-22T20:26:11.826Z",
-          "releaseRoot": "/private/tmp/raspd-sole-native/releases/asp-574b83013cf8-20261122T202611Z-053e86",
+          "releaseId": "asp-cec2af932c28-20261128T075652Z-cb9685",
+          "sourceCommit": "cec2af932c28d96a5b1a64f4d2c995842e94b1f9",
+          "builtAt": "2026-11-28T07:56:52.925Z",
+          "releaseRoot": "/private/tmp/raspd-sole-native/releases/asp-cec2af932c28-20261128T075652Z-cb9685",
           "worker": {
             "protocol": "harness-broker/0.2",
-            "executable": "/private/tmp/raspd-sole-native/releases/asp-574b83013cf8-20261122T202611Z-053e86/harness-broker",
+            "executable": "/private/tmp/raspd-sole-native/releases/asp-cec2af932c28-20261128T075652Z-cb9685/harness-broker",
             "hostedDrivers": [
               "claude-code-hrcpty",
               "claude-code-tmux",

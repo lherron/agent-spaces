@@ -65,9 +65,9 @@
           ]
         },
         "release": {
-          "releaseId": "asp-574b83013cf8-20261122T202611Z-053e86",
-          "sourceCommit": "574b83013cf8ab7006f7e5afdd131c38d27d0873",
-          "builtAt": "2026-11-22T20:26:11.826Z"
+          "releaseId": "asp-cec2af932c28-20261128T075652Z-cb9685",
+          "sourceCommit": "cec2af932c28d96a5b1a64f4d2c995842e94b1f9",
+          "builtAt": "2026-11-28T07:56:52.925Z"
         }
       }
     },
@@ -80,7 +80,7 @@
         "declaration": {
           "schemaVersion": "aspc-resolve-runtime-declaration-response/v1",
           "ok": true,
-          "evaluatedAt": "2026-11-22T20:26:30.758Z",
+          "evaluatedAt": "2026-11-28T07:57:40.074Z",
           "contextHash": "8525074d12fb5b74fe63297be8167a5798c4e90da54f6d8897f59e1fb6a3f4e8",
           "agentSources": {
             "aspHome": "/private/tmp/raspd-sole-native/stage/asp-home",
@@ -336,7 +336,7 @@
             },
             {
               "kind": "execution-profile",
-              "partId": "execution-profile:profile_15e5a4afdd1c499d8fc5fcedfc96c323",
+              "partId": "execution-profile:profile_338a0e07abc395c9875f849d359933a7",
               "disposition": {
                 "kind": "effective"
               },
@@ -350,7 +350,7 @@
                 ]
               },
               "value": {
-                "profileId": "profile_15e5a4afdd1c499d8fc5fcedfc96c323",
+                "profileId": "profile_338a0e07abc395c9875f849d359933a7",
                 "controllerKind": "claude-code-tmux",
                 "configuration": {
                   "recipeId": "claude-code"
@@ -386,7 +386,7 @@
             "nearMaxChars": false
           }
         },
-        "effectiveEnvironmentHash": "ebd75b700da5d79353606664c3c6ab66e7953702bd9d4946540845fce43385f9"
+        "effectiveEnvironmentHash": "9a221a441b7bf60e1b39d4ba29321934ecc3dd489da307c80f5b5115baad53e9"
       }
     }
   ],

@@ -110,9 +110,9 @@
           ]
         },
         "release": {
-          "releaseId": "asp-574b83013cf8-20261122T202611Z-053e86",
-          "sourceCommit": "574b83013cf8ab7006f7e5afdd131c38d27d0873",
-          "builtAt": "2026-11-22T20:26:11.826Z"
+          "releaseId": "asp-cec2af932c28-20261128T075652Z-cb9685",
+          "sourceCommit": "cec2af932c28d96a5b1a64f4d2c995842e94b1f9",
+          "builtAt": "2026-11-28T07:56:52.925Z"
         }
       }
     },
@@ -126,11 +126,11 @@
           {
             "level": "error",
             "code": "compiler_exception",
-            "message": "EACCES: permission denied, copyfile '/private/tmp/raspd-sole-native/stage/agents/spaces/p-e-tunr/hooks/hooks.toml' -> '/private/tmp/raspd-sole-native/stage/asp-home/tmp/.staging/space-p-e-tunr-dev-22478-0ed318e6-d2ac-4273-9227-9af805632397/hooks/hooks.toml'",
+            "message": "EACCES: permission denied, copyfile '/private/tmp/raspd-sole-native/stage/agents/spaces/p-e-tunr/hooks/hooks.toml' -> '/private/tmp/raspd-sole-native/stage/asp-home/tmp/.staging/space-p-e-tunr-dev-75794-e3a011b4-2733-4da9-aea9-1fdc70c12553/hooks/hooks.toml'",
             "plane": "asp-compiler",
             "details": {
               "name": "Error",
-              "stack": "Error: EACCES: permission denied, copyfile '/private/tmp/raspd-sole-native/stage/agents/spaces/p-e-tunr/hooks/hooks.toml' -> '/private/tmp/raspd-sole-native/stage/asp-home/tmp/.staging/space-p-e-tunr-dev-22478-0ed318e6-d2ac-4273-9227-9af805632397/hooks/hooks.toml'\n    at async linkFile (/$bunfs/root/aspd.js:19254:20)\n    at async linkDirectory (/$bunfs/root/aspd.js:19277:21)\n    at async linkComponents (/$bunfs/root/aspd.js:19299:26)\n    at async materializeSpace (/$bunfs/root/aspd.js:36097:42)\n    at async materializeSpaceEntry (/$bunfs/root/aspd.js:21960:35)\n    at async materializeTarget (/$bunfs/root/aspd.js:22219:47)\n    at async materializeFromRefs (/$bunfs/root/aspd.js:22491:50)\n    at async materializeAgentRuntimeResources (/$bunfs/root/aspd.js:22925:49)\n    at async materializeSpec (/$bunfs/root/aspd.js:23640:62)\n    at async timeCompilePhase (/$bunfs/root/aspd.js:23173:27)"
+              "stack": "Error\n    at async linkFile (/$bunfs/root/aspd.js:19255:20)\n    at async linkDirectory (/$bunfs/root/aspd.js:19278:21)\n    at async linkComponents (/$bunfs/root/aspd.js:19300:26)\n    at async materializeSpace (/$bunfs/root/aspd.js:36109:42)\n    at async materializeSpaceEntry (/$bunfs/root/aspd.js:21947:35)\n    at async materializeTarget (/$bunfs/root/aspd.js:22206:47)\n    at async materializeFromRefs (/$bunfs/root/aspd.js:22478:50)\n    at async materializeAgentRuntimeResources (/$bunfs/root/aspd.js:22912:49)\n    at async materializeSpec (/$bunfs/root/aspd.js:23627:62)\n    at async timeCompilePhase (/$bunfs/root/aspd.js:23160:27)"
             }
           }
         ]

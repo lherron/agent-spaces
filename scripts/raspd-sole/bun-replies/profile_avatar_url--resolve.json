@@ -44,9 +44,9 @@
           ]
         },
         "release": {
-          "releaseId": "asp-574b83013cf8-20261122T202611Z-053e86",
-          "sourceCommit": "574b83013cf8ab7006f7e5afdd131c38d27d0873",
-          "builtAt": "2026-11-22T20:26:11.826Z"
+          "releaseId": "asp-cec2af932c28-20261128T075652Z-cb9685",
+          "sourceCommit": "cec2af932c28d96a5b1a64f4d2c995842e94b1f9",
+          "builtAt": "2026-11-28T07:56:52.925Z"
         }
       }
     },
@@ -56,7 +56,7 @@
       "result": {
         "schemaVersion": "aspc-resolve-runtime-declaration-response/v1",
         "ok": true,
-        "evaluatedAt": "2026-11-22T20:26:29.282Z",
+        "evaluatedAt": "2026-11-28T07:57:38.689Z",
         "contextHash": "af48d85e01a6835c34174ae04ba5bc8ead03c6f7c36c94675b8dcff73401bcf4",
         "agentSources": {
           "aspHome": "/private/tmp/raspd-sole-native/stage/asp-home",
